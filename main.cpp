@@ -30,6 +30,7 @@
 extern "C" {
 #include <grass/gis.h>
 #include <grass/vector.h>
+#include <grass/raster.h>
 #include <grass/glocale.h>
 #include "interp.h"
 }
@@ -39,34 +40,33 @@ extern "C" {
 
 
 template <typename PointT> inline void
-getMinMax(const pcl::PointCloud< PointT > &cloud, double &minX, double &maxX,
-          double &minY, double &maxY, double &minZ, double &maxZ) {
+getMinMax(const pcl::PointCloud< PointT > &cloud, struct bound_box &bbox) {
     PointT minp, maxp;
     pcl::getMinMax3D (cloud, minp, maxp);
-    minX = minp.x;
-    minY = minp.y;
-    minZ = minp.z;
-    maxX = maxp.x;
-    maxY = maxp.y;
-    maxZ = maxp.z;
+    bbox.W = minp.x;
+    bbox.S = minp.y;
+    bbox.B = minp.z;
+    bbox.E = maxp.x;
+    bbox.N = maxp.y;
+    bbox.T = maxp.z;
 }
 
 template<typename PointT>
 inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> cloud, double trim_N, double trim_S, double  trim_E, double trim_W) {
 
-    double minX, maxX, minY, maxY, minZ, maxZ;
+    struct bound_box bbox;
     typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>);
-    getMinMax(*cloud, minX, maxX, minY, maxY, minZ, maxZ);
+    getMinMax(*cloud, bbox);
     pcl::PassThrough<PointT> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("x");
-    pass.setFilterLimits(minX + trim_W, maxX - trim_E);
+    pass.setFilterLimits(bbox.W + trim_W, bbox.E - trim_E);
     pass.filter (*cloud_filtered_pass);
     cloud_filtered_pass.swap (cloud);
 
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("y");
-    pass.setFilterLimits(minY + trim_S, maxY - trim_N);
+    pass.setFilterLimits(bbox.S + trim_S, bbox.N - trim_N);
     pass.filter (*cloud_filtered_pass);
     cloud_filtered_pass.swap (cloud);
 }
@@ -126,7 +126,7 @@ int main(int argc, char **argv)
 {
     struct GModule *module;
     struct Option *voutput_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
-            *smooth_radius_opt;
+            *smooth_radius_opt, *region_opt, *resolution_opt;
     struct Map_info Map;
     struct line_pnts *Points;
     struct line_cats *Cats;
@@ -141,6 +141,7 @@ int main(int argc, char **argv)
     module->label = _("Imports a point cloud from Kinect v2");
     module->description = _("Imports a point cloud from Kinect v2");
 
+    voutput_opt = G_define_standard_option(G_OPT_V_OUTPUT);
     zrange_opt = G_define_option();
     zrange_opt->key = "zrange";
     zrange_opt->type = TYPE_DOUBLE;
@@ -169,7 +170,23 @@ int main(int argc, char **argv)
     smooth_radius_opt->label = _("Smooth radius");
     smooth_radius_opt->description = _("Recommended values between 0.006-0.009");
 
-    voutput_opt = G_define_standard_option(G_OPT_V_OUTPUT);
+    region_opt = G_define_option();
+    region_opt->key = "region";
+    region_opt->key_desc = "name";
+    region_opt->required = NO;
+    region_opt->multiple = NO;
+    region_opt->type = TYPE_STRING;
+    region_opt->description = _("Region of the resulting raster");
+    region_opt->gisprompt = "old,windows,region";
+
+    resolution_opt = G_define_option();
+    resolution_opt->key = "resolution";
+    resolution_opt->type = TYPE_DOUBLE;
+    resolution_opt->required = YES;
+    resolution_opt->answer = "0.002";
+    resolution_opt->label = _("Raster resolution");
+    resolution_opt->description = _("Recommended values between 0.001-0.003");
+
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
 
@@ -250,7 +267,28 @@ int main(int argc, char **argv)
     }
 
     Vect_rewind(&Map);
-    interpolate(&Map, voutput_opt->answer, 20, 2, 60, 40, -1);
+    struct bound_box bbox;
+    getMinMax(*cloud, bbox);
+    interpolate(&Map, voutput_opt->answer, 20, 2, 60, 40, -1,
+                &bbox, atof(resolution_opt->answer));
+
+    char *name;
+    if ((name = region_opt->answer)){	/* region= */
+        struct Cell_head cellhd, window;
+        Rast_get_cellhd(voutput_opt->answer, "", &cellhd);
+        G_get_element_window(&window, "windows", name, "");
+        window.rows = cellhd.rows;
+        window.cols = cellhd.cols;
+
+        G_adjust_Cell_head(&window, 1, 1);
+
+        cellhd.north = window.north;
+        cellhd.south = window.south;
+        cellhd.east = window.east;
+        cellhd.west = window.west;
+
+        Rast_put_cellhd(voutput_opt->answer, &cellhd);
+    }
 
     k2g.shutDown();
     Vect_build(&Map);

@@ -9,11 +9,23 @@
 #include <grass/dataquad.h>
 
 
-void interpolate(struct Map_info *Map, char* output, double tension, double smoothing, int npmin, int segmax, double dmin){
+void interpolate(struct Map_info *Map, char* output, double tension,
+                 double smoothing, int npmin, int segmax, double dmin,
+                 struct bound_box *bbox, double resolution){
 
     struct interp_params params;
     struct Cell_head cellhd;
+
     G_get_set_window(&cellhd);
+    cellhd.north = bbox->N;
+    cellhd.south = bbox->S;
+    cellhd.west = bbox->W;
+    cellhd.east = bbox->E;
+    cellhd.ns_res = resolution;
+    cellhd.ew_res = resolution;
+    G_adjust_Cell_head(&cellhd, 0, 0);
+
+
     double ew_res = cellhd.ew_res;
     double ns_res = cellhd.ns_res;
     int n_cols = cellhd.cols;
