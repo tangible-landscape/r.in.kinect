@@ -57,6 +57,8 @@ inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> cloud, double tr
     struct bound_box bbox;
     typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>);
     getMinMax(*cloud, bbox);
+    std::cout << bbox.N << " " << bbox.W << std::endl;
+    std::cout << bbox.S << " " << bbox.E << std::endl;
     pcl::PassThrough<PointT> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("x");
@@ -77,7 +79,6 @@ inline void rotate_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double a
     Eigen::Affine3f transform_Z = Eigen::Affine3f::Identity();
     // The same rotation matrix as before; tetha radians arround Z axis
     transform_Z.rotate (Eigen::AngleAxisf (angle, Eigen::Vector3f::UnitZ()));
-    transform_Z.rotate (Eigen::AngleAxisf (angle, Eigen::Vector3f::UnitX()));
 
     // Executing the transformation
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr transformed_cloud (new pcl::PointCloud<pcl::PointXYZRGB> ());
@@ -87,14 +88,14 @@ inline void rotate_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double a
 
 template<typename PointT>
 inline void trim_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double zrange_min, double zrange_max) {
-
     typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>);
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
-    pass.setFilterLimits(zrange_min, zrange_max);
+    pass.setFilterLimits(-zrange_max, -zrange_min);
     pass.filter (*cloud_filtered_pass);
     cloud_filtered_pass.swap (cloud);
+
 }
 
 template<typename PointT>
@@ -125,8 +126,8 @@ inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double rad
 int main(int argc, char **argv)
 {
     struct GModule *module;
-    struct Option *voutput_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
-            *smooth_radius_opt, *region_opt, *resolution_opt;
+    struct Option *voutput_opt, *routput_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
+            *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt;
     struct Map_info Map;
     struct line_pnts *Points;
     struct line_cats *Cats;
@@ -142,6 +143,10 @@ int main(int argc, char **argv)
     module->description = _("Imports a point cloud from Kinect v2");
 
     voutput_opt = G_define_standard_option(G_OPT_V_OUTPUT);
+    voutput_opt->required = NO;
+    voutput_opt->key = "vector";
+
+    routput_opt = G_define_standard_option(G_OPT_R_OUTPUT);
     zrange_opt = G_define_option();
     zrange_opt->key = "zrange";
     zrange_opt->type = TYPE_DOUBLE;
@@ -161,6 +166,7 @@ int main(int argc, char **argv)
     rotate_Z_opt->key = "rotate";
     rotate_Z_opt->type = TYPE_DOUBLE;
     rotate_Z_opt->required = NO;
+    rotate_Z_opt->answer = "0";
     rotate_Z_opt->description = _("Rotate along Z axis");
 
     smooth_radius_opt = G_define_option();
@@ -179,6 +185,12 @@ int main(int argc, char **argv)
     region_opt->description = _("Region of the resulting raster");
     region_opt->gisprompt = "old,windows,region";
 
+    raster_opt = G_define_standard_option(G_OPT_R_MAP);
+    raster_opt->key = "raster";
+    raster_opt->required = NO;
+    raster_opt->multiple = NO;
+    raster_opt->description = _("Match resulting raster to this raster map");
+
     resolution_opt = G_define_option();
     resolution_opt->key = "resolution";
     resolution_opt->type = TYPE_DOUBLE;
@@ -187,12 +199,26 @@ int main(int argc, char **argv)
     resolution_opt->label = _("Raster resolution");
     resolution_opt->description = _("Recommended values between 0.001-0.003");
 
+    zexag_opt = G_define_option();
+    zexag_opt->key = "zexag";
+    zexag_opt->type = TYPE_DOUBLE;
+    zexag_opt->required = NO;
+    zexag_opt->required = NO;
+    zexag_opt->answer = "1";
+    zexag_opt->description = _("Vertical exaggeration");
+
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
 
-    if (Vect_open_new(&Map, voutput_opt->answer, WITH_Z) < 0)
-        G_fatal_error(_("Unable to create vector map <%s>"), voutput_opt->answer);
-    Vect_hist_command(&Map);
+    if (voutput_opt->answer) {
+        if (Vect_open_new(&Map, voutput_opt->answer, WITH_Z) < 0)
+            G_fatal_error(_("Unable to create temporary vector map <%s>"), voutput_opt->answer);
+    }
+    else {
+        if (Vect_open_tmp_new(&Map, routput_opt->answer, WITH_Z) < 0)
+            G_fatal_error(_("Unable to create temporary vector map <%s>"), routput_opt->answer);
+    }
+
 
     Points = Vect_new_line_struct();
     Cats = Vect_new_cats_struct();
@@ -213,6 +239,7 @@ int main(int argc, char **argv)
         trim_W = atof(trim_opt->answers[3])/1000;
     }
     double angle = pcl::deg2rad(atof(rotate_Z_opt->answer));
+    double zexag = atof(zexag_opt->answer);
 
     boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_pass (new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -223,7 +250,7 @@ int main(int argc, char **argv)
     cloud->sensor_orientation_.w() = 0.0;
     cloud->sensor_orientation_.x() = 1.0;
     cloud->sensor_orientation_.y() = 0.0;
-    cloud->sensor_orientation_.z() = -1.0;
+    cloud->sensor_orientation_.z() = 0.0;
 
     // remove invalid points
     std::vector<int> index_nans;
@@ -243,9 +270,8 @@ int main(int argc, char **argv)
     }
 
     // rotation Z
-    if (rotate_Z_opt->answer != NULL) {
-        rotate_Z(cloud, angle);
-    }
+    rotate_Z(cloud, angle);
+
 
     // trim edges
     if (trim_opt->answer != NULL) {
@@ -255,43 +281,60 @@ int main(int argc, char **argv)
     if (smooth_radius_opt->answer)
         smooth(cloud, atof(smooth_radius_opt->answer));
 
+    // get Z scaling
+    struct bound_box bbox;
+    struct Cell_head cellhd, window;
+    double offset, scale;
+    char *name;
+    getMinMax(*cloud, bbox);
+    if ((name = region_opt->answer)){	/* region= */
+        G_get_element_window(&window, "windows", name, "");
+        offset = window.bottom;
+    }
+    else if ((name = raster_opt->answer)) {
+        struct FPRange range;
+        double zmin, zmax;
+        Rast_get_cellhd(name, "", &window);
+        Rast_get_fp_range_min_max(&range, &zmin, &zmax);
+        offset = zmin;
+    }
+    else { // current region
+        G_get_set_window(&window);
+        offset = bbox.B;
+    }
+    scale = ((window.north - window.south) / (bbox.N - bbox.S) +
+            (window.east - window.west) / (bbox.E - bbox.W)) / 2;
+    // write to vector
+    double z;
     for (int i; i < cloud->points.size(); i++) {
         Vect_reset_line(Points);
         Vect_reset_cats(Cats);
-
+        z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
         Vect_append_point(Points, cloud->points[i].x,
                           cloud->points[i].y,
-                          cloud->points[i].z);
+                          z);
         Vect_cat_set(Cats, 1, cat);
         Vect_write_line(&Map, GV_POINT, Points, Cats);
     }
 
+    // interpolate
     Vect_rewind(&Map);
-    struct bound_box bbox;
-    getMinMax(*cloud, bbox);
-    interpolate(&Map, voutput_opt->answer, 20, 2, 60, 40, -1,
+    interpolate(&Map, voutput_opt->answer, 20, 2, 50, 40, -1,
                 &bbox, atof(resolution_opt->answer));
 
-    char *name;
-    if ((name = region_opt->answer)){	/* region= */
-        struct Cell_head cellhd, window;
-        Rast_get_cellhd(voutput_opt->answer, "", &cellhd);
-        G_get_element_window(&window, "windows", name, "");
-        window.rows = cellhd.rows;
-        window.cols = cellhd.cols;
 
-        G_adjust_Cell_head(&window, 1, 1);
-
-        cellhd.north = window.north;
-        cellhd.south = window.south;
-        cellhd.east = window.east;
-        cellhd.west = window.west;
-
-        Rast_put_cellhd(voutput_opt->answer, &cellhd);
-    }
+    // georeference horizontally
+    Rast_get_cellhd(voutput_opt->answer, "", &cellhd);
+    window.rows = cellhd.rows;
+    window.cols = cellhd.cols;
+    G_adjust_Cell_head(&window, 1, 1);
+    cellhd.north = window.north;
+    cellhd.south = window.south;
+    cellhd.east = window.east;
+    cellhd.west = window.west;
+    Rast_put_cellhd(voutput_opt->answer, &cellhd);
 
     k2g.shutDown();
-    Vect_build(&Map);
     Vect_close(&Map);
     return EXIT_SUCCESS;
 }

@@ -132,7 +132,7 @@ public:
 
                     const float rx = colmap(x) * depth_value;
                     const float ry = dy * depth_value;
-                    itP->z = depth_value;
+                    itP->z = -depth_value;
                     itP->x = rx;
                     itP->y = ry;
 
