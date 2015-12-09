@@ -52,13 +52,11 @@ getMinMax(const pcl::PointCloud< PointT > &cloud, struct bound_box &bbox) {
 }
 
 template<typename PointT>
-inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> cloud, double trim_N, double trim_S, double  trim_E, double trim_W) {
+inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double trim_N, double trim_S, double  trim_E, double trim_W) {
 
     struct bound_box bbox;
-    typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>);
+    typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
     getMinMax(*cloud, bbox);
-    std::cout << bbox.N << " " << bbox.W << std::endl;
-    std::cout << bbox.S << " " << bbox.E << std::endl;
     pcl::PassThrough<PointT> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("x");
@@ -81,14 +79,14 @@ inline void rotate_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double a
     transform_Z.rotate (Eigen::AngleAxisf (angle, Eigen::Vector3f::UnitZ()));
 
     // Executing the transformation
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr transformed_cloud (new pcl::PointCloud<pcl::PointXYZRGB> ());
+    typename pcl::PointCloud<PointT>::Ptr transformed_cloud (new pcl::PointCloud<PointT>(512, 424));
     pcl::transformPointCloud (*cloud, *transformed_cloud, transform_Z);
     transformed_cloud.swap (cloud);
 }
 
 template<typename PointT>
 inline void trim_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double zrange_min, double zrange_max) {
-    typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>);
+    typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
@@ -105,7 +103,7 @@ inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double rad
     typename pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
 
     // Output has the PointNormal type in order to store the normals calculated by MLS
-    boost::shared_ptr<pcl::PointCloud<PointT>> mls_points (new pcl::PointCloud<PointT>);
+    boost::shared_ptr<pcl::PointCloud<PointT>> mls_points (new pcl::PointCloud<PointT>(512, 424));
 
     // Init object (second point type is for the normals, even if unused)
     pcl::MovingLeastSquares<PointT, PointT> mls;
@@ -131,7 +129,7 @@ int main(int argc, char **argv)
     struct Map_info Map;
     struct line_pnts *Points;
     struct line_cats *Cats;
-    int cat;
+    int cat = 1;
 
     G_gisinit(argv[0]);
 
@@ -210,16 +208,6 @@ int main(int argc, char **argv)
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
 
-    if (voutput_opt->answer) {
-        if (Vect_open_new(&Map, voutput_opt->answer, WITH_Z) < 0)
-            G_fatal_error(_("Unable to create temporary vector map <%s>"), voutput_opt->answer);
-    }
-    else {
-        if (Vect_open_tmp_new(&Map, routput_opt->answer, WITH_Z) < 0)
-            G_fatal_error(_("Unable to create temporary vector map <%s>"), routput_opt->answer);
-    }
-
-
     Points = Vect_new_line_struct();
     Cats = Vect_new_cats_struct();
 
@@ -241,52 +229,14 @@ int main(int argc, char **argv)
     double angle = pcl::deg2rad(atof(rotate_Z_opt->answer));
     double zexag = atof(zexag_opt->answer);
 
-    boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud;
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_pass (new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_pass (new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
 
-
-    K2G k2g(OPENGL);
-    cloud = k2g.getCloud();
-    cloud->sensor_orientation_.w() = 0.0;
-    cloud->sensor_orientation_.x() = 1.0;
-    cloud->sensor_orientation_.y() = 0.0;
-    cloud->sensor_orientation_.z() = 0.0;
-
-    // remove invalid points
-    std::vector<int> index_nans;
-    pcl::removeNaNFromPointCloud(*cloud, *cloud, index_nans);
-
-    pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
-    sor.setInputCloud(cloud);
-    sor.setMeanK(50);
-    sor.setStddevMulThresh(0.5);
-    sor.filter(*cloud_filtered_pass);
-    cloud_filtered_pass.swap (cloud);
-
-
-    // trim Z
-    if (zrange_opt->answer != NULL) {
-        trim_Z(cloud, zrange_min, zrange_max);
-    }
-
-    // rotation Z
-    rotate_Z(cloud, angle);
-
-
-    // trim edges
-    if (trim_opt->answer != NULL) {
-        trimNSEW(cloud, trim_N, trim_S, trim_W, trim_E);
-    }
-
-    if (smooth_radius_opt->answer)
-        smooth(cloud, atof(smooth_radius_opt->answer));
-
-    // get Z scaling
     struct bound_box bbox;
     struct Cell_head cellhd, window;
     double offset, scale;
     char *name;
-    getMinMax(*cloud, bbox);
+
     if ((name = region_opt->answer)){	/* region= */
         G_get_element_window(&window, "windows", name, "");
         offset = window.bottom;
@@ -300,41 +250,90 @@ int main(int argc, char **argv)
     }
     else { // current region
         G_get_set_window(&window);
-        offset = bbox.B;
-    }
-    scale = ((window.north - window.south) / (bbox.N - bbox.S) +
-            (window.east - window.west) / (bbox.E - bbox.W)) / 2;
-    // write to vector
-    double z;
-    for (int i; i < cloud->points.size(); i++) {
-        Vect_reset_line(Points);
-        Vect_reset_cats(Cats);
-        z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
-        Vect_append_point(Points, cloud->points[i].x,
-                          cloud->points[i].y,
-                          z);
-        Vect_cat_set(Cats, 1, cat);
-        Vect_write_line(&Map, GV_POINT, Points, Cats);
+        offset = 0;
     }
 
-    // interpolate
-    Vect_rewind(&Map);
-    interpolate(&Map, voutput_opt->answer, 20, 2, 50, 40, -1,
-                &bbox, atof(resolution_opt->answer));
 
+    K2G k2g(OPENGL);
+    k2g.getCloud(cloud);
+    cloud->sensor_orientation_.w() = 0.0;
+    cloud->sensor_orientation_.x() = 1.0;
+    cloud->sensor_orientation_.y() = 0.0;
+    cloud->sensor_orientation_.z() = 0.0;
+    int j = 0;
+    while(j < 10) {
+        cloud = k2g.getCloud();
+        // remove invalid points
+        std::vector<int> index_nans;
+        pcl::removeNaNFromPointCloud(*cloud, *cloud, index_nans);
 
-    // georeference horizontally
-    Rast_get_cellhd(voutput_opt->answer, "", &cellhd);
-    window.rows = cellhd.rows;
-    window.cols = cellhd.cols;
-    G_adjust_Cell_head(&window, 1, 1);
-    cellhd.north = window.north;
-    cellhd.south = window.south;
-    cellhd.east = window.east;
-    cellhd.west = window.west;
-    Rast_put_cellhd(voutput_opt->answer, &cellhd);
+        pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
+        sor.setInputCloud(cloud);
+        sor.setMeanK(50);
+        sor.setStddevMulThresh(0.5);
+        sor.filter(*cloud_filtered_pass);
+        cloud_filtered_pass.swap (cloud);
+
+        // trim Z
+        if (zrange_opt->answer != NULL) {
+            trim_Z(cloud, zrange_min, zrange_max);
+        }
+
+        // rotation Z
+        rotate_Z(cloud, angle);
+
+        // trim edges
+        if (trim_opt->answer != NULL) {
+            trimNSEW(cloud, trim_N, trim_S, trim_W, trim_E);
+        }
+        if (smooth_radius_opt->answer)
+            smooth(cloud, atof(smooth_radius_opt->answer));
+
+        // get Z scaling
+        getMinMax(*cloud, bbox);
+        scale = ((window.north - window.south) / (bbox.N - bbox.S) +
+                 (window.east - window.west) / (bbox.E - bbox.W)) / 2;
+        // write to vector
+        double z;
+        if (voutput_opt->answer) {
+            if (Vect_open_new(&Map, voutput_opt->answer, WITH_Z) < 0)
+                G_fatal_error(_("Unable to create temporary vector map <%s>"), voutput_opt->answer);
+        }
+        else {
+            if (Vect_open_tmp_new(&Map, routput_opt->answer, WITH_Z) < 0)
+                G_fatal_error(_("Unable to create temporary vector map <%s>"), routput_opt->answer);
+        }
+        for (int i=0; i < cloud->points.size(); i++) {
+            Vect_reset_line(Points);
+            Vect_reset_cats(Cats);
+            z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
+            Vect_append_point(Points, cloud->points[i].x,
+                              cloud->points[i].y,
+                              z);
+            Vect_cat_set(Cats, 1, cat);
+            Vect_write_line(&Map, GV_POINT, Points, Cats);
+        }
+        // interpolate
+        Vect_rewind(&Map);
+        interpolate(&Map, routput_opt->answer, 20, 2, 50, 40, -1,
+                    &bbox, atof(resolution_opt->answer));
+
+        // georeference horizontally
+        Rast_get_cellhd(routput_opt->answer, "", &cellhd);
+        window.rows = cellhd.rows;
+        window.cols = cellhd.cols;
+        G_adjust_Cell_head(&window, 1, 1);
+        cellhd.north = window.north;
+        cellhd.south = window.south;
+        cellhd.east = window.east;
+        cellhd.west = window.west;
+        Rast_put_cellhd(routput_opt->answer, &cellhd);
+        Vect_close(&Map);
+
+        j++;
+    }
 
     k2g.shutDown();
-    Vect_close(&Map);
+
     return EXIT_SUCCESS;
 }
