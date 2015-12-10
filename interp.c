@@ -9,6 +9,29 @@
 #include <grass/dataquad.h>
 
 
+int deallocate(struct multtree *tree)
+{
+    int j;
+
+    if (tree == NULL)
+        return 0;
+    if (tree->data == NULL)
+        return 0;
+    if (tree->leafs != NULL) {
+        for (j = 0; j < 4; j++) {
+            deallocate(tree->leafs[j]);
+        }
+        G_free(tree->leafs);
+    }
+    else {
+        G_free(tree->data->points);
+        G_free(tree->data);
+
+    }
+    G_free(tree);
+    return 1;
+}
+
 void interpolate(struct Map_info *Map, char* output, double tension,
                  double smoothing, int npmin, int segmax, double dmin,
                  struct bound_box *bbox, double resolution){
@@ -149,6 +172,7 @@ void interpolate(struct Map_info *Map, char* output, double tension,
                  0, 1, npoint);
     fclose(Tmp_fd_z);
     unlink(tmp);
+    deallocate(tree);
 
 }
 

@@ -276,9 +276,7 @@ int main(int argc, char **argv)
     signal(SIGTERM, terminate);
     signal(SIGINT, terminate);
     while (j < 1) {
-        std::cout << signaled << std::endl;
         if (signaled == 1) {
-            std::cout << "Preruseno" << std::endl;
             break;
         }
 
