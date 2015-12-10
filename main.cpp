@@ -36,8 +36,14 @@ extern "C" {
 }
 
 #include <stdlib.h>
+#include <signal.h>
 
-
+static volatile sig_atomic_t signaled = 0;
+void terminate (int param)
+{
+    G_message(_("Scanning terminated"));
+    signaled = 1;
+}
 
 template <typename PointT> inline void
 getMinMax(const pcl::PointCloud< PointT > &cloud, struct bound_box &bbox) {
@@ -126,6 +132,7 @@ int main(int argc, char **argv)
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt;
+    struct Flag *loop_flag;
     struct Map_info Map;
     struct line_pnts *Points;
     struct line_cats *Cats;
@@ -205,6 +212,10 @@ int main(int argc, char **argv)
     zexag_opt->answer = "1";
     zexag_opt->description = _("Vertical exaggeration");
 
+    loop_flag = G_define_flag();
+    loop_flag->key = 'l';
+    loop_flag->description = _("Keep scanning in a loop");
+
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
 
@@ -261,7 +272,16 @@ int main(int argc, char **argv)
     cloud->sensor_orientation_.y() = 0.0;
     cloud->sensor_orientation_.z() = 0.0;
     int j = 0;
-    while(j < 10) {
+    // get terminating signals
+    signal(SIGTERM, terminate);
+    signal(SIGINT, terminate);
+    while (j < 1) {
+        std::cout << signaled << std::endl;
+        if (signaled == 1) {
+            std::cout << "Preruseno" << std::endl;
+            break;
+        }
+
         cloud = k2g.getCloud();
         // remove invalid points
         std::vector<int> index_nans;
@@ -330,7 +350,8 @@ int main(int argc, char **argv)
         Rast_put_cellhd(routput_opt->answer, &cellhd);
         Vect_close(&Map);
 
-        j++;
+        if (!loop_flag->answer)
+            j++;
     }
 
     k2g.shutDown();
