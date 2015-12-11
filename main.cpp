@@ -26,6 +26,7 @@
 
 
 #include "k2g.h"
+#include "binning.h"
 
 extern "C" {
 #include <grass/gis.h>
@@ -131,7 +132,8 @@ int main(int argc, char **argv)
 {
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
-            *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt;
+            *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
+            *method_opt;
     struct Flag *loop_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -211,6 +213,15 @@ int main(int argc, char **argv)
     zexag_opt->required = NO;
     zexag_opt->answer = "1";
     zexag_opt->description = _("Vertical exaggeration");
+
+    method_opt = G_define_option();
+    method_opt->key = "method";
+    method_opt->multiple = NO;
+    method_opt->required = NO;
+    method_opt->type = TYPE_STRING;
+    method_opt->options = "interpolation,mean";
+    method_opt->answer = "interpolation";
+    method_opt->description = _("Surface reconstruction method");
 
     loop_flag = G_define_flag();
     loop_flag->key = 'l';
@@ -311,30 +322,40 @@ int main(int argc, char **argv)
         getMinMax(*cloud, bbox);
         scale = ((window.north - window.south) / (bbox.N - bbox.S) +
                  (window.east - window.west) / (bbox.E - bbox.W)) / 2;
+
         // write to vector
-        double z;
-        if (voutput_opt->answer) {
-            if (Vect_open_new(&Map, voutput_opt->answer, WITH_Z) < 0)
-                G_fatal_error(_("Unable to create temporary vector map <%s>"), voutput_opt->answer);
+        if (voutput_opt->answer || strcmp(method_opt->answer, "interpolation") == 0) {
+            double z;
+            if (voutput_opt->answer) {
+                if (Vect_open_new(&Map, voutput_opt->answer, WITH_Z) < 0)
+                    G_fatal_error(_("Unable to create temporary vector map <%s>"), voutput_opt->answer);
+            }
+            else {
+                if (Vect_open_tmp_new(&Map, routput_opt->answer, WITH_Z) < 0)
+                    G_fatal_error(_("Unable to create temporary vector map <%s>"), routput_opt->answer);
+            }
+            for (int i=0; i < cloud->points.size(); i++) {
+                Vect_reset_line(Points);
+                Vect_reset_cats(Cats);
+                z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
+                Vect_append_point(Points, cloud->points[i].x,
+                                  cloud->points[i].y,
+                                  z);
+                Vect_cat_set(Cats, 1, cat);
+                Vect_write_line(&Map, GV_POINT, Points, Cats);
+            }
+            if (strcmp(method_opt->answer, "interpolation") == 0) {
+                // interpolate
+                Vect_rewind(&Map);
+                interpolate(&Map, routput_opt->answer, 20, 2, 50, 40, -1,
+                            &bbox, atof(resolution_opt->answer));
+            }
+            Vect_close(&Map);
         }
-        else {
-            if (Vect_open_tmp_new(&Map, routput_opt->answer, WITH_Z) < 0)
-                G_fatal_error(_("Unable to create temporary vector map <%s>"), routput_opt->answer);
+        if (strcmp(method_opt->answer, "interpolation") != 0) {
+            binning(*cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
+                    scale, zexag, offset);
         }
-        for (int i=0; i < cloud->points.size(); i++) {
-            Vect_reset_line(Points);
-            Vect_reset_cats(Cats);
-            z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
-            Vect_append_point(Points, cloud->points[i].x,
-                              cloud->points[i].y,
-                              z);
-            Vect_cat_set(Cats, 1, cat);
-            Vect_write_line(&Map, GV_POINT, Points, Cats);
-        }
-        // interpolate
-        Vect_rewind(&Map);
-        interpolate(&Map, routput_opt->answer, 20, 2, 50, 40, -1,
-                    &bbox, atof(resolution_opt->answer));
 
         // georeference horizontally
         Rast_get_cellhd(routput_opt->answer, "", &cellhd);
@@ -346,7 +367,7 @@ int main(int argc, char **argv)
         cellhd.east = window.east;
         cellhd.west = window.west;
         Rast_put_cellhd(routput_opt->answer, &cellhd);
-        Vect_close(&Map);
+
 
         if (!loop_flag->answer)
             j++;
