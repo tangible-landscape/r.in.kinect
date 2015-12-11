@@ -25,7 +25,7 @@
 #define SIZE_INCREMENT 10
 
 
-static void *get_cell_ptr(void *array, int cols, int row, int col,
+void *get_cell_ptr(void *array, int cols, int row, int col,
               RASTER_MAP_TYPE map_type)
 {
     return G_incr_void_ptr(array,

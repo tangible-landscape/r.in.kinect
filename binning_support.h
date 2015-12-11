@@ -66,6 +66,8 @@ struct PointBinning
     double trim;
 };
 
+void *get_cell_ptr(void *array, int cols, int row, int col,
+                   RASTER_MAP_TYPE map_type);
 int check_rows_cols_fit_to_size_t(int rows, int cols);
 void point_binning_memory_test(struct PointBinning *point_binning, int rows,
                                int cols, RASTER_MAP_TYPE rtype);
