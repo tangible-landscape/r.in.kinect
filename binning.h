@@ -44,6 +44,9 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
         arr_row = (int)((cellhd.north - cloud.points[i].y) / cellhd.ns_res);
         arr_col = (int)((cloud.points[i].x - cellhd.west) / cellhd.ew_res);
 
+        if (arr_row < 0 || arr_row >= cellhd.rows || arr_col < 0 || arr_col >= cellhd.cols){
+            continue;
+        }
         z = (cloud.points[i].z - bbox->B) * scale / zexag + offset;
 
         update_value(&point_binning, nullptr, cellhd.cols, arr_row, arr_col,
@@ -77,26 +80,30 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
                         }
                     }
                 }
-                Rast_set_c_value(ptr, 1, CELL_TYPE);
-                void *ptr4 = get_cell_ptr(point_binning.sum_array, cellhd.cols,
-                                          r, c, FCELL_TYPE);
-                Rast_set_f_value(ptr4, sum / count, FCELL_TYPE);
+                if (count > 3) {
+                    Rast_set_c_value(ptr, 1, CELL_TYPE);
+                    void *ptr4 = get_cell_ptr(point_binning.sum_array, cellhd.cols,
+                                              r, c, FCELL_TYPE);
+                    Rast_set_f_value(ptr4, sum / count, FCELL_TYPE);
+                }
             }
         }
     }
     /* calc stats and output */
+    std::cout << "AAA" << std::endl;
     G_message(_("Writing to map ..."));
     for (int row = 0; row < cellhd.rows; row++) {
         write_values(&point_binning, nullptr, raster_row, row, cellhd.cols, FCELL_TYPE);
         /* write out line of raster data */
         Rast_put_row(out_fd, raster_row, FCELL_TYPE);
     }
+    std::cout << "BBB" << std::endl;
     /* free memory */
     point_binning_free(&point_binning, nullptr);
     G_free(raster_row);
     /* close raster file & write history */
     Rast_close(out_fd);
-
+std::cout << "CCC" << std::endl;
     /* colortable for elevations */
     struct Colors colors;
     struct FPRange range;
