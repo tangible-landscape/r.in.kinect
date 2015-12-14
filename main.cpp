@@ -267,6 +267,7 @@ int main(int argc, char **argv)
         struct FPRange range;
         double zmin, zmax;
         Rast_get_cellhd(name, "", &window);
+        Rast_read_fp_range(name, "", &range);
         Rast_get_fp_range_min_max(&range, &zmin, &zmax);
         offset = zmin;
     }

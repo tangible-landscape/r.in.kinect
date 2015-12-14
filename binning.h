@@ -63,23 +63,24 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
 
             if (Rast_get_c_value(ptr, CELL_TYPE) == 0) {
                 count = sum = 0;
-                for (int rr = r - window_size; rr < r + window_size; rr++) {
-                    for (int cc = c - window_size; cc < c + window_size; cc++) {
+                for (int rr = r - window_size; rr <= r + window_size; rr++) {
+                    for (int cc = c - window_size; cc <= c + window_size; cc++) {
+                        if (cc < 0 || rr < 0 || cc >= cellhd.cols || rr >= cellhd.rows)
+                            continue;
                         ptr2 = get_cell_ptr(point_binning.n_array, cellhd.cols,
                                                  rr, cc, CELL_TYPE);
                         ptr3 = get_cell_ptr(point_binning.sum_array, cellhd.cols,
                                                  rr, cc, FCELL_TYPE);
                         if ((n = Rast_get_c_value(ptr2, CELL_TYPE))) {
-                            sum += Rast_get_f_value(ptr3, FCELL_TYPE)/ n;
+                            sum += (Rast_get_f_value(ptr3, FCELL_TYPE) / n);
                             count += 1;
                         }
                     }
                 }
                 Rast_set_c_value(ptr, 1, CELL_TYPE);
                 void *ptr4 = get_cell_ptr(point_binning.sum_array, cellhd.cols,
-                                         r, c, FCELL_TYPE);
+                                          r, c, FCELL_TYPE);
                 Rast_set_f_value(ptr4, sum / count, FCELL_TYPE);
-                std::cout << sum/count << std::endl;
             }
         }
     }
@@ -95,6 +96,47 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
     G_free(raster_row);
     /* close raster file & write history */
     Rast_close(out_fd);
+
+    /* colortable for elevations */
+    struct Colors colors;
+    struct FPRange range;
+    double zmin, zmax;
+    Rast_init_colors(&colors);
+    Rast_read_fp_range(output, "", &range);
+    Rast_get_fp_range_min_max(&range, &zmin, &zmax);
+
+    double zstep = (FCELL) (zmax - zmin) / 5.;
+    for (int j = 1; j <= 5; j++) {
+        FCELL data1 = (FCELL) (zmin + (j - 1) * zstep);
+        FCELL data2 = (FCELL) (zmin + j * zstep);
+        switch (j) {
+        case 1:
+            Rast_add_f_color_rule(&data1, 0, 191, 191,
+                                  &data2, 0, 255, 0, &colors);
+            break;
+        case 2:
+            Rast_add_f_color_rule(&data1, 0, 255, 0,
+                                  &data2, 255, 255, 0, &colors);
+            break;
+        case 3:
+            Rast_add_f_color_rule(&data1, 255, 255, 0,
+                                  &data2, 255, 127, 0, &colors);
+            break;
+        case 4:
+            Rast_add_f_color_rule(&data1, 255, 127, 0,
+                                  &data2, 191, 127, 63, &colors);
+            break;
+        case 5:
+            Rast_add_f_color_rule(&data1, 191, 127, 63,
+                                  &data2, 200, 200, 200, &colors);
+            break;
+        }
+    }
+    const char *mapset = G_find_file("cell", output, "");
+    Rast_write_colors(output, mapset, &colors);
+    Rast_quantize_fp_map_range(output, mapset,
+                (DCELL) zmin - 0.5, (DCELL) zmax + 0.5,
+                (CELL) (zmin - 0.5), (CELL) (zmax + 0.5));
 }
 
 #endif // BINNING_H
