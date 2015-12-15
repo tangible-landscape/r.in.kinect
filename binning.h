@@ -33,7 +33,7 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
     int out_fd = Rast_open_new(output, FCELL_TYPE);
 
     /* allocate memory for a single row of output data */
-    FCELL *raster_row = Rast_allocate_f_output_buf();
+    void *raster_row = Rast_allocate_output_buf(FCELL_TYPE);
 
     point_binning_allocate(&point_binning, cellhd.rows, cellhd.cols, FCELL_TYPE);
 
@@ -52,7 +52,6 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
         update_value(&point_binning, nullptr, cellhd.cols, arr_row, arr_col,
                      FCELL_TYPE, z);
     }
-
 
     // fill nulls
     int window_size = 1;
@@ -90,20 +89,19 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
         }
     }
     /* calc stats and output */
-    std::cout << "AAA" << std::endl;
     G_message(_("Writing to map ..."));
     for (int row = 0; row < cellhd.rows; row++) {
         write_values(&point_binning, nullptr, raster_row, row, cellhd.cols, FCELL_TYPE);
         /* write out line of raster data */
         Rast_put_row(out_fd, raster_row, FCELL_TYPE);
     }
-    std::cout << "BBB" << std::endl;
+
     /* free memory */
     point_binning_free(&point_binning, nullptr);
     G_free(raster_row);
     /* close raster file & write history */
     Rast_close(out_fd);
-std::cout << "CCC" << std::endl;
+
     /* colortable for elevations */
     struct Colors colors;
     struct FPRange range;
