@@ -163,14 +163,14 @@ int main(int argc, char **argv)
     zrange_opt->required = NO;
     zrange_opt->key_desc = "min,max";
     zrange_opt->label = _("Filter range for z data (min,max)");
-    zrange_opt->description = _("Z is distance from scanner in meters");
+    zrange_opt->description = _("Z is distance from scanner in cm");
 
     trim_opt = G_define_option();
     trim_opt->key = "trim";
     trim_opt->type = TYPE_DOUBLE;
     trim_opt->required = NO;
     trim_opt->key_desc = "N,S,E,W";
-    trim_opt->description = _("Trim edges in mm");
+    trim_opt->description = _("Trim edges in cm");
 
     rotate_Z_opt = G_define_option();
     rotate_Z_opt->key = "rotate";
@@ -250,17 +250,17 @@ int main(int argc, char **argv)
     /* parse zrange */
     double zrange_min, zrange_max;
     if (zrange_opt->answer != NULL) {
-        zrange_min = atof(zrange_opt->answers[0]);
-        zrange_max = atof(zrange_opt->answers[1]);
+        zrange_min = atof(zrange_opt->answers[0])/100;
+        zrange_max = atof(zrange_opt->answers[1])/100;
     }
 
     /* parse trim */
     double trim_N, trim_S, trim_E, trim_W;
     if (trim_opt->answer != NULL) {
-        trim_N = atof(trim_opt->answers[0])/1000;
-        trim_S = atof(trim_opt->answers[1])/1000;
-        trim_E = atof(trim_opt->answers[2])/1000;
-        trim_W = atof(trim_opt->answers[3])/1000;
+        trim_N = atof(trim_opt->answers[0])/100;
+        trim_S = atof(trim_opt->answers[1])/100;
+        trim_E = atof(trim_opt->answers[2])/100;
+        trim_W = atof(trim_opt->answers[3])/100;
     }
     double angle = pcl::deg2rad(atof(rotate_Z_opt->answer));
     double zexag = atof(zexag_opt->answer);
@@ -316,19 +316,6 @@ int main(int argc, char **argv)
         std::vector<int> index_nans;
 
         pcl::removeNaNFromPointCloud(*cloud, *cloud, index_nans);
-        if (max_points < cloud->points.size()) {
-            max_points = cloud->points.size();
-        }
-        std::cout << (max_points - cloud->points.size()) / float(max_points) << std::endl;
-        if ((max_points - cloud->points.size()) / float(max_points) > 0.01)
-            continue;
-
-        pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
-        sor.setInputCloud(cloud);
-        sor.setMeanK(50);
-        sor.setStddevMulThresh(0.5);
-        sor.filter(*cloud_filtered_pass);
-        cloud_filtered_pass.swap (cloud);
 
         // calibration
         if(calib_flag->answer) {
@@ -352,6 +339,21 @@ int main(int argc, char **argv)
         if (trim_opt->answer != NULL) {
             trimNSEW(cloud, trim_N, trim_S, trim_W, trim_E);
         }
+
+        pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
+        sor.setInputCloud(cloud);
+        sor.setMeanK(50);
+        sor.setStddevMulThresh(0.5);
+        sor.filter(*cloud_filtered_pass);
+        cloud_filtered_pass.swap (cloud);
+
+        if (max_points < cloud->points.size()) {
+            max_points = cloud->points.size();
+        }
+        std::cout << (max_points - cloud->points.size()) / float(max_points) << std::endl;
+//        if ((max_points - cloud->points.size()) / float(max_points) > 0.01)
+//            continue;
+
         if (smooth_radius_opt->answer)
             smooth(cloud, atof(smooth_radius_opt->answer));
 

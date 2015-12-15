@@ -79,7 +79,7 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
                         }
                     }
                 }
-                if (count > 3) {
+                if (count >= 5) {
                     Rast_set_c_value(ptr, 1, CELL_TYPE);
                     void *ptr4 = get_cell_ptr(point_binning.sum_array, cellhd.cols,
                                               r, c, FCELL_TYPE);
