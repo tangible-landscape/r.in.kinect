@@ -28,6 +28,7 @@
 
 #include "k2g.h"
 #include "binning.h"
+#include "calibrate.h"
 
 extern "C" {
 #include <grass/gis.h>
@@ -129,23 +130,13 @@ inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double rad
     mls_points.swap(cloud);
 }
 
-inline double getAngle(const Eigen::Vector3f &v1, const Eigen::Vector3f &v2, const bool in_degree)
-{
-    // Compute the actual angle
-    double rad = v1.normalized().dot (v2.normalized());
-    if (rad < -1.0)
-        rad = -1.0;
-    else if (rad >  1.0)
-        rad = 1.0;
-    return (in_degree ? acos (rad) * 180.0 / M_PI : acos (rad));
-}
 
 int main(int argc, char **argv)
 {
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
-            *method_opt;
+            *method_opt, *calib_matrix_opt;
     struct Flag *loop_flag, *calib_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -235,6 +226,13 @@ int main(int argc, char **argv)
     method_opt->answer = "interpolation";
     method_opt->description = _("Surface reconstruction method");
 
+    calib_matrix_opt = G_define_option();
+    calib_matrix_opt->key = "calib_matrix";
+    calib_matrix_opt->multiple = YES;
+    calib_matrix_opt->type = TYPE_DOUBLE;
+    calib_matrix_opt->required = NO;
+    calib_matrix_opt->description = _("Calibration matrix");
+
     loop_flag = G_define_flag();
     loop_flag->key = 'l';
     loop_flag->description = _("Keep scanning in a loop");
@@ -266,6 +264,10 @@ int main(int argc, char **argv)
     }
     double angle = pcl::deg2rad(atof(rotate_Z_opt->answer));
     double zexag = atof(zexag_opt->answer);
+    Eigen::Matrix4f transform_matrix;
+    if (calib_matrix_opt->answer) {
+        transform_matrix = read_matrix(calib_matrix_opt);
+    }
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_pass (new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
@@ -330,58 +332,14 @@ int main(int argc, char **argv)
 
         // calibration
         if(calib_flag->answer) {
-            // PLANE ESTIMATION
-            pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients());
-            pcl::PointIndices::Ptr inliers (new pcl::PointIndices());
-            // Create the segmentation object
-            pcl::SACSegmentation<pcl::PointXYZRGB> seg;
-            // Optional
-            seg.setOptimizeCoefficients (true);
-            // Mandatory
-            seg.setModelType(pcl::SACMODEL_PLANE);
-            seg.setMethodType(pcl::SAC_RANSAC);
-            seg.setMaxIterations(1000);
-            seg.setDistanceThreshold (0.005);
-
-            // Segment the largest planar component from the remaining cloud
-            seg.setInputCloud (cloud);
-            seg.segment (*inliers, *coefficients);
-            if (inliers->indices.size () == 0)
-            {
-                std::cerr << "Could not estimate a planar model for the given dataset." << std::endl;
-            }
-            Eigen::Vector3f scan_plane(coefficients->values[0],
-                    coefficients->values[1],
-                    coefficients->values[2]);
-            Eigen::Vector3f plane(0, 0, 1);
-            G_important_message(_("Deviation: %f"), getAngle(scan_plane, plane, TRUE));
-            Eigen::Vector3f cross = scan_plane.cross(plane);
-            Eigen::Matrix3f u2 = Eigen::Matrix3f::Identity();
-            u2(0, 1) = -cross[2];
-            u2(0, 2) = cross[1];
-            u2(1, 0) = cross[2];
-            u2(1, 1) = 0;
-            u2(1, 2) = -cross[0];
-            u2(2, 0) = -cross[1];
-            u2(2, 1) = cross[0];
-            u2(1, 0) = 0;
-            Eigen::Matrix3f mat = Eigen::Matrix3f::Identity().array()  + u2.array() * sin(getAngle(scan_plane, plane, false)) + u2.array()  * u2.array()  * (1 - cos(getAngle(scan_plane, plane, false)));
-            std::cout <<mat << std::endl;
-
-//            pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_stat (new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
-//            // Create the filtering object
-//            pcl::ExtractIndices<pcl::PointXYZRGB> extract;
-//            // Extract the inliers
-//            extract.setInputCloud(cloud);
-//            extract.setIndices(inliers);
-//            extract.setNegative(false);
-//            extract.filter (*cloud_filtered_stat);
-
-//            cloud_filtered_stat.swap (cloud);
+            calibrate(cloud);
             j++;
             continue;
         }
-
+        // rotation of the point cloud based on calibration
+        if (calib_matrix_opt->answer) {
+            rotate_with_matrix(cloud, transform_matrix);
+        }
         // trim Z
         if (zrange_opt->answer != NULL) {
             trim_Z(cloud, zrange_min, zrange_max);
