@@ -6,7 +6,14 @@ extern "C" {
 #include <grass/raster.h>
 #include <grass/vector.h>
 #include <grass/glocale.h>
-#include "binning_support.h"
+}
+
+void *get_cell_ptr(void *array, int cols, int row, int col,
+                   RASTER_MAP_TYPE map_type)
+{
+    return G_incr_void_ptr(array,
+                           ((row * (size_t) cols) +
+                            col) * Rast_cell_size(map_type));
 }
 
 template<typename PointT>
