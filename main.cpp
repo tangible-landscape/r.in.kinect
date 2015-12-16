@@ -222,7 +222,7 @@ int main(int argc, char **argv)
     method_opt->multiple = NO;
     method_opt->required = NO;
     method_opt->type = TYPE_STRING;
-    method_opt->options = "interpolation,mean";
+    method_opt->options = "interpolation,mean,min,max";
     method_opt->answer = "interpolation";
     method_opt->description = _("Surface reconstruction method");
 
@@ -393,7 +393,7 @@ int main(int argc, char **argv)
         }
         if (strcmp(method_opt->answer, "interpolation") != 0) {
             binning(*cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
-                    scale, zexag, offset);
+                    scale, zexag, offset, method_opt->answer);
         }
 
         // georeference horizontally

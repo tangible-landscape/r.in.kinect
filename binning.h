@@ -12,7 +12,7 @@ extern "C" {
 template<typename PointT>
 inline void binning(pcl::PointCloud< PointT > &cloud,
                     char* output, struct bound_box *bbox, double resolution,
-                    double scale, double zexag, double offset) {
+                    double scale, double zexag, double offset, const char *method_name) {
 
     struct Cell_head cellhd;
 
@@ -25,6 +25,13 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
     cellhd.ew_res = resolution;
     G_adjust_Cell_head(&cellhd, 0, 0);
     Rast_set_window(&cellhd);
+
+    int method = 0; // mean
+    if (strcmp(method_name, "min") == 0)
+        method = 1; // min
+    else if (strcmp(method_name, "max") == 0)
+        method = 2; // max
+
     /* open output map */
     int out_fd = Rast_open_new(output, FCELL_TYPE);
 
@@ -54,7 +61,12 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
 
         void *ptr_sum = get_cell_ptr(sum_array, cellhd.cols, arr_row, arr_col, FCELL_TYPE);
         FCELL old_sum = Rast_get_f_value(ptr_sum, FCELL_TYPE);
-        Rast_set_f_value(ptr_sum, (z + old_sum), FCELL_TYPE);
+        if (method == 0 || old_n == 0)
+            Rast_set_f_value(ptr_sum, (z + old_sum), FCELL_TYPE);
+        else if (method == 1)
+            Rast_set_f_value(ptr_sum, z < old_sum ? z : old_sum, FCELL_TYPE);
+        else
+            Rast_set_f_value(ptr_sum, z > old_sum ? z : old_sum, FCELL_TYPE);
     }
 
     /* calc stats and output */
@@ -82,7 +94,10 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
                         void *ptr3 = get_cell_ptr(sum_array, cellhd.cols,
                                             rr, cc, FCELL_TYPE);
                         if ((nn = Rast_get_c_value(ptr2, CELL_TYPE))) {
-                            sum2 += (Rast_get_f_value(ptr3, FCELL_TYPE) / nn);
+                            if (method == 0)
+                                sum2 += (Rast_get_f_value(ptr3, FCELL_TYPE) / nn);
+                            else
+                                sum2 += (Rast_get_f_value(ptr3, FCELL_TYPE));
                             count += 1;
                         }
                     }
@@ -93,8 +108,12 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
                 else
                     Rast_set_null_value(ptr, 1, FCELL_TYPE);
             }
-            else
-                Rast_set_d_value(ptr, (sum / n), FCELL_TYPE);
+            else {
+                if (method == 0)
+                    Rast_set_d_value(ptr, (sum / n), FCELL_TYPE);
+                else
+                    Rast_set_d_value(ptr, sum, FCELL_TYPE);
+            }
 
             ptr = G_incr_void_ptr(ptr, Rast_cell_size(FCELL_TYPE));
         }
