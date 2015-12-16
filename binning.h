@@ -14,7 +14,6 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
                     char* output, struct bound_box *bbox, double resolution,
                     double scale, double zexag, double offset) {
 
-    struct PointBinning point_binning;
     struct Cell_head cellhd;
 
     G_get_set_window(&cellhd);
@@ -25,17 +24,17 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
     cellhd.ns_res = resolution;
     cellhd.ew_res = resolution;
     G_adjust_Cell_head(&cellhd, 0, 0);
-    G_set_window(&cellhd);
-
-    point_binning_set(&point_binning, "mean", nullptr, nullptr);
-
+    Rast_set_window(&cellhd);
     /* open output map */
     int out_fd = Rast_open_new(output, FCELL_TYPE);
 
     /* allocate memory for a single row of output data */
     void *raster_row = Rast_allocate_output_buf(FCELL_TYPE);
 
-    point_binning_allocate(&point_binning, cellhd.rows, cellhd.cols, FCELL_TYPE);
+    void *n_array = G_calloc((size_t) cellhd.rows * (cellhd.cols + 1),
+                             Rast_cell_size(CELL_TYPE));
+    void *sum_array = G_calloc((size_t) cellhd.rows * (cellhd.cols + 1),
+                               Rast_cell_size(FCELL_TYPE));
 
     int arr_row, arr_col;
     double z;
@@ -49,55 +48,63 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
         }
         z = (cloud.points[i].z - bbox->B) * scale / zexag + offset;
 
-        update_value(&point_binning, nullptr, cellhd.cols, arr_row, arr_col,
-                     FCELL_TYPE, z);
+        void *ptr_n = get_cell_ptr(n_array, cellhd.cols, arr_row, arr_col, CELL_TYPE);
+        CELL old_n = Rast_get_c_value(ptr_n, CELL_TYPE);
+        Rast_set_c_value(ptr_n, (1 + old_n), CELL_TYPE);
+
+        void *ptr_sum = get_cell_ptr(sum_array, cellhd.cols, arr_row, arr_col, FCELL_TYPE);
+        FCELL old_sum = Rast_get_f_value(ptr_sum, FCELL_TYPE);
+        Rast_set_f_value(ptr_sum, (z + old_sum), FCELL_TYPE);
     }
 
-    // fill nulls
-    int window_size = 1;
-    FCELL sum = 0;
-    int count, n;
-    void *ptr, *ptr2, *ptr3;
-    for (int r = 0; r < cellhd.rows; r++) {
-        for (int c = 0; c < cellhd.cols; c++) {
-            ptr = get_cell_ptr(point_binning.n_array, cellhd.cols,
-                                     r, c, CELL_TYPE);
+    /* calc stats and output */
+    G_message(_("Writing to map ..."));
+    for (int row = 0; row < cellhd.rows; row++) {
+        void *ptr = raster_row;
+        for (int col = 0; col < cellhd.cols; col++) {
+            size_t offset = (row * cellhd.cols + col) * Rast_cell_size(FCELL_TYPE);
+            size_t n_offset = (row * cellhd.cols + col) * Rast_cell_size(CELL_TYPE);
+            int n = Rast_get_c_value(G_incr_void_ptr(n_array, n_offset), CELL_TYPE);
+            double sum =
+                Rast_get_d_value(G_incr_void_ptr(sum_array, offset), FCELL_TYPE);
 
-            if (Rast_get_c_value(ptr, CELL_TYPE) == 0) {
-                count = sum = 0;
-                for (int rr = r - window_size; rr <= r + window_size; rr++) {
-                    for (int cc = c - window_size; cc <= c + window_size; cc++) {
+            if (n == 0) {
+                int count = 0;
+                double sum2 = 0;
+                int window_size = 1;
+                int nn;
+                for (int rr = row - window_size; rr <= row + window_size; rr++) {
+                    for (int cc = col - window_size; cc <= col + window_size; cc++) {
                         if (cc < 0 || rr < 0 || cc >= cellhd.cols || rr >= cellhd.rows)
                             continue;
-                        ptr2 = get_cell_ptr(point_binning.n_array, cellhd.cols,
-                                                 rr, cc, CELL_TYPE);
-                        ptr3 = get_cell_ptr(point_binning.sum_array, cellhd.cols,
-                                                 rr, cc, FCELL_TYPE);
-                        if ((n = Rast_get_c_value(ptr2, CELL_TYPE))) {
-                            sum += (Rast_get_f_value(ptr3, FCELL_TYPE) / n);
+                        void *ptr2 = get_cell_ptr(n_array, cellhd.cols,
+                                            rr, cc, CELL_TYPE);
+                        void *ptr3 = get_cell_ptr(sum_array, cellhd.cols,
+                                            rr, cc, FCELL_TYPE);
+                        if ((nn = Rast_get_c_value(ptr2, CELL_TYPE))) {
+                            sum2 += (Rast_get_f_value(ptr3, FCELL_TYPE) / nn);
                             count += 1;
                         }
                     }
                 }
-                if (count >= 5) {
-                    Rast_set_c_value(ptr, 1, CELL_TYPE);
-                    void *ptr4 = get_cell_ptr(point_binning.sum_array, cellhd.cols,
-                                              r, c, FCELL_TYPE);
-                    Rast_set_f_value(ptr4, sum / count, FCELL_TYPE);
+                if (count >= 3) {
+                    Rast_set_f_value(ptr, sum2 / count, FCELL_TYPE);
                 }
+                else
+                    Rast_set_null_value(ptr, 1, FCELL_TYPE);
             }
+            else
+                Rast_set_d_value(ptr, (sum / n), FCELL_TYPE);
+
+            ptr = G_incr_void_ptr(ptr, Rast_cell_size(FCELL_TYPE));
         }
-    }
-    /* calc stats and output */
-    G_message(_("Writing to map ..."));
-    for (int row = 0; row < cellhd.rows; row++) {
-        write_values(&point_binning, nullptr, raster_row, row, cellhd.cols, FCELL_TYPE);
         /* write out line of raster data */
         Rast_put_row(out_fd, raster_row, FCELL_TYPE);
     }
 
     /* free memory */
-    point_binning_free(&point_binning, nullptr);
+    G_free(n_array);
+    G_free(sum_array);
     G_free(raster_row);
     /* close raster file & write history */
     Rast_close(out_fd);
