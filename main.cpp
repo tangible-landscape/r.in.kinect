@@ -335,11 +335,6 @@ int main(int argc, char **argv)
         // rotation Z
         rotate_Z(cloud, angle);
 
-        // trim edges
-        if (trim_opt->answer != NULL) {
-            trimNSEW(cloud, trim_N, trim_S, trim_W, trim_E);
-        }
-
         pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
         sor.setInputCloud(cloud);
         sor.setMeanK(50);
@@ -347,10 +342,18 @@ int main(int argc, char **argv)
         sor.filter(*cloud_filtered_pass);
         cloud_filtered_pass.swap (cloud);
 
-        if (max_points < cloud->points.size()) {
-            max_points = cloud->points.size();
+
+
+        // trim edges
+        if (trim_opt->answer != NULL) {
+            trimNSEW(cloud, trim_N, trim_S, trim_W, trim_E);
         }
-        std::cout << (max_points - cloud->points.size()) / float(max_points) << std::endl;
+
+
+//        if (max_points < cloud->points.size()) {
+//            max_points = cloud->points.size();
+//        }
+//        std::cout << (max_points - cloud->points.size()) / float(max_points) << std::endl;
 //        if ((max_points - cloud->points.size()) / float(max_points) > 0.01)
 //            continue;
 
