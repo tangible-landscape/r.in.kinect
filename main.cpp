@@ -136,7 +136,7 @@ int main(int argc, char **argv)
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
-            *method_opt, *calib_matrix_opt;
+            *method_opt, *calib_matrix_opt, *numscan_opt;
     struct Flag *loop_flag, *calib_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -233,6 +233,13 @@ int main(int argc, char **argv)
     calib_matrix_opt->required = NO;
     calib_matrix_opt->description = _("Calibration matrix");
 
+    numscan_opt = G_define_option();
+    numscan_opt->answer = "1";
+    numscan_opt->key = "numscan";
+    numscan_opt->type = TYPE_INTEGER;
+    numscan_opt->description = _("Number of scans to intergrate");
+    numscan_opt->required = NO;
+
     loop_flag = G_define_flag();
     loop_flag->key = 'l';
     loop_flag->description = _("Keep scanning in a loop");
@@ -312,6 +319,9 @@ int main(int argc, char **argv)
         }
 
         cloud = k2g.getCloud();
+        for (int s = 0; s < atoi(numscan_opt->answer) - 1; s++){
+            *(cloud) += *(k2g.getCloud());
+
         // remove invalid points
         std::vector<int> index_nans;
 
