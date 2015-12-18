@@ -25,7 +25,6 @@
 #include <pcl/common/angles.h>
 #include <pcl/segmentation/sac_segmentation.h>
 
-
 #include "k2g.h"
 #include "binning.h"
 #include "calibrate.h"
@@ -130,6 +129,73 @@ inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double rad
     mls_points.swap(cloud);
 }
 
+int median(std::vector<int> &v)
+{
+    std::vector<int> new_(v);
+    size_t n = new_.size() / 2;
+    nth_element(new_.begin(), new_.begin()+n, new_.end());
+    return new_[n];
+}
+
+template<typename PointT>
+void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &trim_N, double &trim_S, double &trim_E, double &trim_W) {
+    struct bound_box bbox;
+    getMinMax(*cloud, bbox);
+    double resolution = 0.01;
+    int length_x = (int)((bbox.E - bbox.W) / resolution + 0.5);
+    int length_y = (int)((bbox.N - bbox.S) / resolution + 0.5);
+    std::vector<int> x_array(length_x, 0);
+    std::vector<int> y_array(length_y, 0);
+
+    unsigned int idx;
+    for(typename pcl::PointCloud<PointT>::iterator it = cloud->begin(); it!= cloud->end(); it++){
+        idx = int((it->x - bbox.W) / resolution);
+        if (idx < x_array.size())
+            x_array[idx] += 1;
+
+        idx = int((it->y - bbox.S) / resolution);
+        if (idx < y_array.size())
+            y_array[idx] += 1;
+    }
+    int median_x = median(x_array);
+    int median_y = median(y_array);
+
+    trim_N = 0;
+    trim_S = 0;
+    trim_E = 0;
+    trim_W = 0;
+    double tolerance = 0.7;
+    for (int i = 0; i < x_array.size(); i++) {
+        if (x_array[i] < tolerance * median_x) {
+            trim_W = (i + 1) * resolution;
+        }
+        else
+            break;
+    }
+    for (int i = x_array.size() - 1; i >= 0; i--) {
+        if (x_array[i] < tolerance * median_x) {
+            trim_E = (x_array.size() - i) * resolution;
+        }
+        else
+            break;
+    }
+    for (int i = 0; i < y_array.size(); i++) {
+        if (y_array[i] < tolerance * median_y) {
+            trim_S = (i + 1) * resolution;
+        }
+        else
+            break;
+    }
+    for (int i = y_array.size() - 1; i >= 0; i--) {
+        if (y_array[i] < tolerance * median_y) {
+            trim_N = (y_array.size() - i) * resolution;
+        }
+        else
+            break;
+    }
+    std::cout << trim_N << " " << trim_S << " " << trim_E << " " << trim_W << std::endl;
+
+}
 
 int main(int argc, char **argv)
 {
@@ -269,7 +335,7 @@ int main(int argc, char **argv)
         trim_E = atof(trim_opt->answers[2])/100;
         trim_W = atof(trim_opt->answers[3])/100;
     }
-    double angle = pcl::deg2rad(atof(rotate_Z_opt->answer));
+    double angle = pcl::deg2rad(atof(rotate_Z_opt->answer) + 180);
     double zexag = atof(zexag_opt->answer);
     Eigen::Matrix4f transform_matrix;
     if (calib_matrix_opt->answer) {
@@ -319,7 +385,7 @@ int main(int argc, char **argv)
         }
 
         cloud = k2g.getCloud();
-        for (int s = 0; s < atoi(numscan_opt->answer) - 1; s++){
+        for (int s = 0; s < atoi(numscan_opt->answer) - 1; s++)
             *(cloud) += *(k2g.getCloud());
 
         // remove invalid points
@@ -337,6 +403,7 @@ int main(int argc, char **argv)
         if (calib_matrix_opt->answer) {
             rotate_with_matrix(cloud, transform_matrix);
         }
+
         // trim Z
         if (zrange_opt->answer != NULL) {
             trim_Z(cloud, zrange_min, zrange_max);
@@ -347,18 +414,20 @@ int main(int argc, char **argv)
 
         pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
         sor.setInputCloud(cloud);
-        sor.setMeanK(50);
+        sor.setMeanK(20);
         sor.setStddevMulThresh(0.5);
         sor.filter(*cloud_filtered_pass);
         cloud_filtered_pass.swap (cloud);
 
-
+        double autotrim_N, autotrim_S, autotrim_E, autotrim_W;
+        autotrim(cloud, autotrim_N, autotrim_S, autotrim_E, autotrim_W);
+        if (autotrim_E > 0 || autotrim_N > 0 || autotrim_S > 0 || autotrim_W > 0)
+            trimNSEW(cloud, autotrim_N, autotrim_S, autotrim_E, autotrim_W);
 
         // trim edges
         if (trim_opt->answer != NULL) {
-            trimNSEW(cloud, trim_N, trim_S, trim_W, trim_E);
+            trimNSEW(cloud, trim_N, trim_S, trim_E, trim_W);
         }
-
 
 //        if (max_points < cloud->points.size()) {
 //            max_points = cloud->points.size();
@@ -405,7 +474,7 @@ int main(int argc, char **argv)
             Vect_close(&Map);
         }
         if (strcmp(method_opt->answer, "interpolation") != 0) {
-            binning(*cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
+            binning(cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
                     scale, zexag, offset, method_opt->answer);
         }
 

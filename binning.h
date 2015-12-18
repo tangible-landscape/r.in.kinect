@@ -17,7 +17,7 @@ void *get_cell_ptr(void *array, int cols, int row, int col,
 }
 
 template<typename PointT>
-inline void binning(pcl::PointCloud< PointT > &cloud,
+inline void binning(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                     char* output, struct bound_box *bbox, double resolution,
                     double scale, double zexag, double offset, const char *method_name) {
 
@@ -52,15 +52,15 @@ inline void binning(pcl::PointCloud< PointT > &cloud,
 
     int arr_row, arr_col;
     double z;
-    for (int i = 0; i < cloud.points.size(); i++) {
+    for (int i = 0; i < cloud->points.size(); i++) {
         /* find the bin in the current array box */
-        arr_row = (int)((cellhd.north - cloud.points[i].y) / cellhd.ns_res);
-        arr_col = (int)((cloud.points[i].x - cellhd.west) / cellhd.ew_res);
+        arr_row = (int)((cellhd.north - cloud->points[i].y) / cellhd.ns_res);
+        arr_col = (int)((cloud->points[i].x - cellhd.west) / cellhd.ew_res);
 
         if (arr_row < 0 || arr_row >= cellhd.rows || arr_col < 0 || arr_col >= cellhd.cols){
             continue;
         }
-        z = (cloud.points[i].z - bbox->B) * scale / zexag + offset;
+        z = (cloud->points[i].z - bbox->B) * scale / zexag + offset;
 
         void *ptr_n = get_cell_ptr(n_array, cellhd.cols, arr_row, arr_col, CELL_TYPE);
         CELL old_n = Rast_get_c_value(ptr_n, CELL_TYPE);
