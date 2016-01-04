@@ -131,7 +131,13 @@ inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double rad
 
 int median(std::vector<int> &v)
 {
-    std::vector<int> new_(v);
+    std::vector<int> new_;
+    new_.reserve(v.size());
+    for (int i = 0; i < v.size(); i++) {
+        if (v[i] != 0)
+            new_.push_back(v[i]);
+    }
+
     size_t n = new_.size() / 2;
     nth_element(new_.begin(), new_.begin()+n, new_.end());
     return new_[n];
