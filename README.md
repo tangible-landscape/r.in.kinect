@@ -26,6 +26,19 @@ Then install GRASS GIS 7. First install [dependencies](https://grasswiki.osgeo.o
 Finally clone this repository and try to compile it with `make MODULE_TOPDIR=path/to/grass`. You might need to edit the Makefile when an error ocurrs. Finally, `make install` in GRASS folder is optional, without it you can launch GRASS as `./bin.x86_64-pc-linux-gnu/grass71.
 
 
+### Mac OSX
+Most libraries can be installed using homebrew, for libfreenect2 follow their  [guide](https://github.com/OpenKinect/libfreenect2#mac-osx). You might need to unplug Kinect and plug it [again](https://github.com/OpenKinect/libfreenect2#protonect-complains-about-no-device-connected-or-failure-opening-device) to make it work. Install PCL with package manager (I used Homebrew). GRASS GIS can be either compiled from source, or use [homebrew](https://grasswiki.osgeo.org/wiki/Compiling_on_MacOSX_using_homebrew).
+
+Then clone this repository, cd into it and switch Makefile:
+
+    mv Makefile.macosx Makefile
+
+Run make, include path to GRASS, in case of GRASS installed with homebrew:
+
+    make MODULE_TOPDIR=/usr/local/Cellar/grass-71/HEAD/grass-7.1.svn/
+    
+Then start GRASS GIS with `grass71` and r.in.kinect should be working.
+
 
 
 
