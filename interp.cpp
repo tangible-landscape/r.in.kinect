@@ -1,4 +1,5 @@
 #include <unistd.h>
+extern "C" {
 #include <grass/gis.h>
 #include <grass/raster.h>
 #include <grass/vector.h>
@@ -7,7 +8,7 @@
 #include <grass/gmath.h>
 #include <grass/qtree.h>
 #include <grass/dataquad.h>
-
+}
 
 int deallocate(struct multtree *tree)
 {
@@ -175,21 +176,3 @@ void interpolate(struct Map_info *Map, char* output, double tension,
     deallocate(tree);
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

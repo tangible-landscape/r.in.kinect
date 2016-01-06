@@ -28,14 +28,15 @@
 #include "k2g.h"
 #include "binning.h"
 #include "calibrate.h"
+#include "interp.h"
 
 extern "C" {
 #include <grass/gis.h>
 #include <grass/vector.h>
 #include <grass/raster.h>
 #include <grass/glocale.h>
-#include "interp.h"
 }
+
 
 #include <stdlib.h>
 #include <signal.h>
