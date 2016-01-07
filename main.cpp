@@ -148,7 +148,7 @@ template<typename PointT>
 void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &trim_N, double &trim_S, double &trim_E, double &trim_W) {
     struct bound_box bbox;
     getMinMax(*cloud, bbox);
-    double resolution = 0.01;
+    double resolution = 0.005;
     int length_x = (int)((bbox.E - bbox.W) / resolution + 0.5);
     int length_y = (int)((bbox.N - bbox.S) / resolution + 0.5);
     std::vector<int> x_array(length_x, 0);
