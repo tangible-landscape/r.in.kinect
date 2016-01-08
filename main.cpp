@@ -145,7 +145,7 @@ int median(std::vector<int> &v)
 }
 
 template<typename PointT>
-void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &trim_N, double &trim_S, double &trim_E, double &trim_W) {
+void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &trim_N, double &trim_S, double &trim_E, double &trim_W, double tolerance) {
     struct bound_box bbox;
     getMinMax(*cloud, bbox);
     double resolution = 0.01;
@@ -171,7 +171,6 @@ void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &trim_N,
     trim_S = 0;
     trim_E = 0;
     trim_W = 0;
-    double tolerance = 0.7;
     for (int i = 0; i < x_array.size(); i++) {
         if (x_array[i] < tolerance * median_x) {
             trim_W = (i + 1) * resolution;
@@ -209,7 +208,7 @@ int main(int argc, char **argv)
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
-            *method_opt, *calib_matrix_opt, *numscan_opt;
+            *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt;
     struct Flag *loop_flag, *calib_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -244,6 +243,15 @@ int main(int argc, char **argv)
     trim_opt->required = NO;
     trim_opt->key_desc = "N,S,E,W";
     trim_opt->description = _("Trim edges in cm");
+
+    trim_tolerance_opt = G_define_option();
+    trim_tolerance_opt->key = "trim_tolerance";
+    trim_tolerance_opt->type = TYPE_DOUBLE;
+    trim_tolerance_opt->required = NO;
+    trim_tolerance_opt->description = _("Influences how much are model sides trimmed automatically, "
+        " should be higher for rectangular models");
+    trim_tolerance_opt->label = _("Trim tolerance between 0 and 1");
+    trim_tolerance_opt->options = "0-1";
 
     rotate_Z_opt = G_define_option();
     rotate_Z_opt->key = "rotate";
@@ -426,10 +434,14 @@ int main(int argc, char **argv)
         sor.filter(*cloud_filtered_pass);
         cloud_filtered_pass.swap (cloud);
 
-        double autotrim_N, autotrim_S, autotrim_E, autotrim_W;
-        autotrim(cloud, autotrim_N, autotrim_S, autotrim_E, autotrim_W);
-        if (autotrim_E > 0 || autotrim_N > 0 || autotrim_S > 0 || autotrim_W > 0)
-            trimNSEW(cloud, autotrim_N, autotrim_S, autotrim_E, autotrim_W);
+        if (trim_tolerance_opt->answer != NULL) {
+            double tol = atof(trim_tolerance_opt->answer);
+            double autotrim_N, autotrim_S, autotrim_E, autotrim_W;
+            autotrim(cloud, autotrim_N, autotrim_S, autotrim_E, autotrim_W, tol);
+            if (autotrim_E > 0 || autotrim_N > 0 || autotrim_S > 0 || autotrim_W > 0)
+                trimNSEW(cloud, autotrim_N, autotrim_S, autotrim_E, autotrim_W);
+        }
+
 
         // trim edges
         if (trim_opt->answer != NULL) {
