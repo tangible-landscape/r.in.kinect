@@ -61,21 +61,19 @@ getMinMax(const pcl::PointCloud< PointT > &cloud, struct bound_box &bbox) {
 }
 
 template<typename PointT>
-inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double trim_N, double trim_S, double  trim_E, double trim_W) {
+inline void clipNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double clip_N, double clip_S, double  clip_E, double clip_W) {
 
-    struct bound_box bbox;
     typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
-    getMinMax(*cloud, bbox);
     pcl::PassThrough<PointT> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("x");
-    pass.setFilterLimits(bbox.W + trim_W, bbox.E - trim_E);
+    pass.setFilterLimits(-clip_W, clip_E);
     pass.filter (*cloud_filtered_pass);
     cloud_filtered_pass.swap (cloud);
 
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("y");
-    pass.setFilterLimits(bbox.S + trim_S, bbox.N - trim_N);
+    pass.setFilterLimits(-clip_S, clip_N);
     pass.filter (*cloud_filtered_pass);
     cloud_filtered_pass.swap (cloud);
 }
@@ -145,10 +143,10 @@ int median(std::vector<int> &v)
 }
 
 template<typename PointT>
-void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &trim_N, double &trim_S, double &trim_E, double &trim_W, double tolerance) {
+void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &clip_N, double &clip_S, double &clip_E, double &clip_W, double tolerance) {
     struct bound_box bbox;
     getMinMax(*cloud, bbox);
-    double resolution = 0.005;
+    double resolution = 0.003;
     int length_x = (int)((bbox.E - bbox.W) / resolution + 0.5);
     int length_y = (int)((bbox.N - bbox.S) / resolution + 0.5);
     std::vector<int> x_array(length_x, 0);
@@ -167,39 +165,39 @@ void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &trim_N,
     int median_x = median(x_array);
     int median_y = median(y_array);
 
-    trim_N = 0;
-    trim_S = 0;
-    trim_E = 0;
-    trim_W = 0;
+    clip_N = 0;
+    clip_S = 0;
+    clip_E = 0;
+    clip_W = 0;
     for (int i = 0; i < x_array.size(); i++) {
         if (x_array[i] < tolerance * median_x) {
-            trim_W = (i + 1) * resolution;
+            clip_W = (i + 1) * resolution;
         }
         else
             break;
     }
     for (int i = x_array.size() - 1; i >= 0; i--) {
         if (x_array[i] < tolerance * median_x) {
-            trim_E = (x_array.size() - i) * resolution;
+            clip_E = (x_array.size() - i) * resolution;
         }
         else
             break;
     }
     for (int i = 0; i < y_array.size(); i++) {
         if (y_array[i] < tolerance * median_y) {
-            trim_S = (i + 1) * resolution;
+            clip_S = (i + 1) * resolution;
         }
         else
             break;
     }
     for (int i = y_array.size() - 1; i >= 0; i--) {
         if (y_array[i] < tolerance * median_y) {
-            trim_N = (y_array.size() - i) * resolution;
+            clip_N = (y_array.size() - i) * resolution;
         }
         else
             break;
     }
-    std::cout << trim_N << " " << trim_S << " " << trim_E << " " << trim_W << std::endl;
+    std::cout << clip_N << " " << clip_S << " " << clip_E << " " << clip_W << std::endl;
 
 }
 
@@ -242,7 +240,7 @@ int main(int argc, char **argv)
     trim_opt->type = TYPE_DOUBLE;
     trim_opt->required = NO;
     trim_opt->key_desc = "N,S,E,W";
-    trim_opt->description = _("Trim edges in cm");
+    trim_opt->description = _("Clip box from center in cm");
 
     trim_tolerance_opt = G_define_option();
     trim_tolerance_opt->key = "trim_tolerance";
@@ -343,12 +341,12 @@ int main(int argc, char **argv)
     }
 
     /* parse trim */
-    double trim_N, trim_S, trim_E, trim_W;
+    double clip_N, clip_S, clip_E, clip_W;
     if (trim_opt->answer != NULL) {
-        trim_N = atof(trim_opt->answers[0])/100;
-        trim_S = atof(trim_opt->answers[1])/100;
-        trim_E = atof(trim_opt->answers[2])/100;
-        trim_W = atof(trim_opt->answers[3])/100;
+        clip_N = atof(trim_opt->answers[0])/100;
+        clip_S = atof(trim_opt->answers[1])/100;
+        clip_E = atof(trim_opt->answers[2])/100;
+        clip_W = atof(trim_opt->answers[3])/100;
     }
     double angle = pcl::deg2rad(atof(rotate_Z_opt->answer) + 180);
     double zexag = atof(zexag_opt->answer);
@@ -427,6 +425,11 @@ int main(int argc, char **argv)
         // rotation Z
         rotate_Z(cloud, angle);
 
+        // specify bounding box from center
+        if (trim_opt->answer != NULL) {
+            clipNSEW(cloud, clip_N, clip_S, clip_E, clip_W);
+        }
+
         pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
         sor.setInputCloud(cloud);
         sor.setMeanK(20);
@@ -436,16 +439,10 @@ int main(int argc, char **argv)
 
         if (trim_tolerance_opt->answer != NULL) {
             double tol = atof(trim_tolerance_opt->answer);
-            double autotrim_N, autotrim_S, autotrim_E, autotrim_W;
-            autotrim(cloud, autotrim_N, autotrim_S, autotrim_E, autotrim_W, tol);
-            if (autotrim_E > 0 || autotrim_N > 0 || autotrim_S > 0 || autotrim_W > 0)
-                trimNSEW(cloud, autotrim_N, autotrim_S, autotrim_E, autotrim_W);
-        }
-
-
-        // trim edges
-        if (trim_opt->answer != NULL) {
-            trimNSEW(cloud, trim_N, trim_S, trim_E, trim_W);
+            double autoclip_N, autoclip_S, autoclip_E, autoclip_W;
+            autotrim(cloud, autoclip_N, autoclip_S, autoclip_E, autoclip_W, tol);
+            if (autoclip_E > 0 || autoclip_N > 0 || autoclip_S > 0 || autoclip_W > 0)
+                clipNSEW(cloud, autoclip_N, autoclip_S, autoclip_E, autoclip_W);
         }
 
 //        if (max_points < cloud->points.size()) {
