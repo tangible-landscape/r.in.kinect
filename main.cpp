@@ -222,11 +222,23 @@ int main(int argc, char **argv)
     module->label = _("Imports a point cloud from Kinect v2");
     module->description = _("Imports a point cloud from Kinect v2");
 
+    routput_opt = G_define_standard_option(G_OPT_R_OUTPUT);
+    routput_opt->guisection = _("Output");
+
+    resolution_opt = G_define_option();
+    resolution_opt->key = "resolution";
+    resolution_opt->type = TYPE_DOUBLE;
+    resolution_opt->required = YES;
+    resolution_opt->answer = "0.002";
+    resolution_opt->label = _("Raster resolution");
+    resolution_opt->description = _("Recommended values between 0.001-0.003");
+    resolution_opt->guisection = _("Output");
+
     voutput_opt = G_define_standard_option(G_OPT_V_OUTPUT);
     voutput_opt->required = NO;
     voutput_opt->key = "vector";
+    voutput_opt->guisection = _("Output");
 
-    routput_opt = G_define_standard_option(G_OPT_R_OUTPUT);
     zrange_opt = G_define_option();
     zrange_opt->key = "zrange";
     zrange_opt->type = TYPE_DOUBLE;
@@ -234,6 +246,7 @@ int main(int argc, char **argv)
     zrange_opt->key_desc = "min,max";
     zrange_opt->label = _("Filter range for z data (min,max)");
     zrange_opt->description = _("Z is distance from scanner in cm");
+    zrange_opt->guisection = _("Filter");
 
     trim_opt = G_define_option();
     trim_opt->key = "trim";
@@ -241,6 +254,7 @@ int main(int argc, char **argv)
     trim_opt->required = NO;
     trim_opt->key_desc = "N,S,E,W";
     trim_opt->description = _("Clip box from center in cm");
+    trim_opt->guisection = _("Filter");
 
     trim_tolerance_opt = G_define_option();
     trim_tolerance_opt->key = "trim_tolerance";
@@ -250,6 +264,7 @@ int main(int argc, char **argv)
         " should be higher for rectangular models");
     trim_tolerance_opt->label = _("Trim tolerance between 0 and 1");
     trim_tolerance_opt->options = "0-1";
+    trim_tolerance_opt->guisection = _("Filter");
 
     rotate_Z_opt = G_define_option();
     rotate_Z_opt->key = "rotate";
@@ -257,6 +272,7 @@ int main(int argc, char **argv)
     rotate_Z_opt->required = NO;
     rotate_Z_opt->answer = "0";
     rotate_Z_opt->description = _("Rotate along Z axis");
+    rotate_Z_opt->guisection = _("Georeferencing");
 
     smooth_radius_opt = G_define_option();
     smooth_radius_opt->key = "smooth_radius";
@@ -273,20 +289,14 @@ int main(int argc, char **argv)
     region_opt->type = TYPE_STRING;
     region_opt->description = _("Region of the resulting raster");
     region_opt->gisprompt = "old,windows,region";
+    region_opt->guisection = _("Georeferencing");
 
     raster_opt = G_define_standard_option(G_OPT_R_MAP);
     raster_opt->key = "raster";
     raster_opt->required = NO;
     raster_opt->multiple = NO;
     raster_opt->description = _("Match resulting raster to this raster map");
-
-    resolution_opt = G_define_option();
-    resolution_opt->key = "resolution";
-    resolution_opt->type = TYPE_DOUBLE;
-    resolution_opt->required = YES;
-    resolution_opt->answer = "0.002";
-    resolution_opt->label = _("Raster resolution");
-    resolution_opt->description = _("Recommended values between 0.001-0.003");
+    raster_opt->guisection = _("Georeferencing");
 
     zexag_opt = G_define_option();
     zexag_opt->key = "zexag";
@@ -295,6 +305,7 @@ int main(int argc, char **argv)
     zexag_opt->required = NO;
     zexag_opt->answer = "1";
     zexag_opt->description = _("Vertical exaggeration");
+    zexag_opt->guisection = _("Georeferencing");
 
     method_opt = G_define_option();
     method_opt->key = "method";
@@ -302,7 +313,7 @@ int main(int argc, char **argv)
     method_opt->required = NO;
     method_opt->type = TYPE_STRING;
     method_opt->options = "interpolation,mean,min,max";
-    method_opt->answer = "interpolation";
+    method_opt->answer = "mean";
     method_opt->description = _("Surface reconstruction method");
 
     calib_matrix_opt = G_define_option();
@@ -311,6 +322,7 @@ int main(int argc, char **argv)
     calib_matrix_opt->type = TYPE_DOUBLE;
     calib_matrix_opt->required = NO;
     calib_matrix_opt->description = _("Calibration matrix");
+    calib_matrix_opt->guisection = _("Calibration");
 
     numscan_opt = G_define_option();
     numscan_opt->answer = "1";
@@ -326,6 +338,7 @@ int main(int argc, char **argv)
     calib_flag = G_define_flag();
     calib_flag->key = 'c';
     calib_flag->description = _("Calibrate");
+    calib_flag->guisection = _("Calibration");
 
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
