@@ -1,4 +1,4 @@
-# v.in.kinect
+# r.in.kinect
 GRASS GIS module for importing data from Microsoft Kinect v2 into a GRASS GIS raster or vector map.
 
 ## Dependencies
