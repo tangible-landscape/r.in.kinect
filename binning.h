@@ -19,7 +19,7 @@ void *get_cell_ptr(void *array, int cols, int row, int col,
 template<typename PointT>
 inline void binning(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                     char* output, struct bound_box *bbox, double resolution,
-                    double scale, double zexag, double offset, const char *method_name) {
+                    double scale, double zexag, double bottom, double offset, const char *method_name) {
 
     struct Cell_head cellhd;
 
@@ -60,7 +60,7 @@ inline void binning(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
         if (arr_row < 0 || arr_row >= cellhd.rows || arr_col < 0 || arr_col >= cellhd.cols){
             continue;
         }
-        z = (cloud->points[i].z - bbox->B) * scale / zexag + offset;
+        z = (cloud->points[i].z - bottom) * scale / zexag + offset;
 
         void *ptr_n = get_cell_ptr(n_array, cellhd.cols, arr_row, arr_col, CELL_TYPE);
         CELL old_n = Rast_get_c_value(ptr_n, CELL_TYPE);

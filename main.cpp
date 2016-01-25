@@ -79,6 +79,26 @@ inline void clipNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double c
 }
 
 template<typename PointT>
+inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double trim_N, double trim_S, double  trim_E, double trim_W) {
+
+    struct bound_box bbox;
+    typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
+    getMinMax(*cloud, bbox);
+    pcl::PassThrough<PointT> pass;
+    pass.setInputCloud(cloud);
+    pass.setFilterFieldName("x");
+    pass.setFilterLimits(bbox.W + trim_W, bbox.E - trim_E);
+    pass.filter (*cloud_filtered_pass);
+    cloud_filtered_pass.swap (cloud);
+
+    pass.setInputCloud(cloud);
+    pass.setFilterFieldName("y");
+    pass.setFilterLimits(bbox.S + trim_S, bbox.N - trim_N);
+    pass.filter (*cloud_filtered_pass);
+    cloud_filtered_pass.swap (cloud);
+}
+
+template<typename PointT>
 inline void rotate_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double angle) {
 
     Eigen::Affine3f transform_Z = Eigen::Affine3f::Identity();
@@ -374,11 +394,14 @@ int main(int argc, char **argv)
     struct bound_box bbox;
     struct Cell_head cellhd, window;
     double offset, scale;
+    bool region3D = false;
     char *name;
 
     if ((name = region_opt->answer)){	/* region= */
         G_get_element_window(&window, "windows", name, "");
         offset = window.bottom;
+        if (window.top != window.bottom)
+            region3D = true;
     }
     else if ((name = raster_opt->answer)) {
         struct FPRange range;
@@ -455,7 +478,7 @@ int main(int argc, char **argv)
             double autoclip_N, autoclip_S, autoclip_E, autoclip_W;
             autotrim(cloud, autoclip_N, autoclip_S, autoclip_E, autoclip_W, tol);
             if (autoclip_E > 0 || autoclip_N > 0 || autoclip_S > 0 || autoclip_W > 0)
-                clipNSEW(cloud, autoclip_N, autoclip_S, autoclip_E, autoclip_W);
+                trimNSEW(cloud, autoclip_N, autoclip_S, autoclip_E, autoclip_W);
         }
 
 //        if (max_points < cloud->points.size()) {
@@ -487,7 +510,10 @@ int main(int argc, char **argv)
             for (int i=0; i < cloud->points.size(); i++) {
                 Vect_reset_line(Points);
                 Vect_reset_cats(Cats);
-                z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
+                if (region3D)
+                    z = (cloud->points[i].z + zrange_max) * scale / zexag + offset;
+                else
+                    z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
                 Vect_append_point(Points, cloud->points[i].x,
                                   cloud->points[i].y,
                                   z);
@@ -504,7 +530,7 @@ int main(int argc, char **argv)
         }
         if (strcmp(method_opt->answer, "interpolation") != 0) {
             binning(cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
-                    scale, zexag, offset, method_opt->answer);
+                    scale, zexag, region3D ? -zrange_max : bbox.B, offset, method_opt->answer);
         }
 
         // georeference horizontally
