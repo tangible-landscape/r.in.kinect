@@ -260,11 +260,10 @@ int main(int argc, char **argv)
     voutput_opt->key = "vector";
     voutput_opt->guisection = _("Output");
 
-    ply_opt = G_define_option();
+    ply_opt = G_define_standard_option(G_OPT_F_OUTPUT);
     ply_opt->required = NO;
     ply_opt->key = "ply";
-    ply_opt->type = TYPE_STRING;
-    ply_opt->description = _("Name of output binary PLY file");
+    ply_opt->description = _("Name of not georeferenced output binary PLY file");
     ply_opt->guisection = _("Output");
 
     zrange_opt = G_define_option();
@@ -507,13 +506,7 @@ int main(int argc, char **argv)
         // write to PLY
         if (ply_opt->answer) {
             pcl::PLYWriter writer;
-            for (int i=0; i < cloud->points.size(); i++) {
-                if (region3D)
-                    cloud->points[i].z = (cloud->points[i].z + zrange_max) * scale / zexag + offset;
-                else
-                    cloud->points[i].z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
-            }
-            writer.write(ply_opt->answer, cloud, true, true);
+            writer.write<pcl::PointXYZRGB>(ply_opt->answer, *cloud, true, true);
         }
 
         // write to vector
