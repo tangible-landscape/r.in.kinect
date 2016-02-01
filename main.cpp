@@ -245,11 +245,12 @@ int main(int argc, char **argv)
 
     routput_opt = G_define_standard_option(G_OPT_R_OUTPUT);
     routput_opt->guisection = _("Output");
+    routput_opt->required = NO;
 
     resolution_opt = G_define_option();
     resolution_opt->key = "resolution";
     resolution_opt->type = TYPE_DOUBLE;
-    resolution_opt->required = YES;
+    resolution_opt->required = NO;
     resolution_opt->answer = "0.002";
     resolution_opt->label = _("Raster resolution");
     resolution_opt->description = _("Recommended values between 0.001-0.003");
@@ -263,7 +264,7 @@ int main(int argc, char **argv)
     ply_opt = G_define_standard_option(G_OPT_F_OUTPUT);
     ply_opt->required = NO;
     ply_opt->key = "ply";
-    ply_opt->description = _("Name of not georeferenced output binary PLY file");
+    ply_opt->description = _("Name of output binary PLY file");
     ply_opt->guisection = _("Output");
 
     zrange_opt = G_define_option();
@@ -366,6 +367,9 @@ int main(int argc, char **argv)
     calib_flag->key = 'c';
     calib_flag->description = _("Calibrate");
     calib_flag->guisection = _("Calibration");
+
+    G_option_required(calib_flag, routput_opt, voutput_opt, ply_opt, NULL);
+    G_option_requires(routput_opt, resolution_opt, NULL);
 
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
@@ -506,11 +510,20 @@ int main(int argc, char **argv)
         // write to PLY
         if (ply_opt->answer) {
             pcl::PLYWriter writer;
+            for (int i=0; i < cloud->points.size(); i++) {
+                if (region3D)
+                    cloud->points[i].z = (cloud->points[i].z + zrange_max) * scale / zexag + offset;
+                else
+                    cloud->points[i].z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
+                cloud->points[i].x = (cloud->points[i].x - bbox.W) * scale + window.west;
+                cloud->points[i].y = (cloud->points[i].y - bbox.S) * scale + window.south;
+
+            }
             writer.write<pcl::PointXYZRGB>(ply_opt->answer, *cloud, true, true);
         }
 
         // write to vector
-        if (voutput_opt->answer || strcmp(method_opt->answer, "interpolation") == 0) {
+        if (voutput_opt->answer || (routput_opt->answer && strcmp(method_opt->answer, "interpolation") == 0)) {
             double z;
             if (voutput_opt->answer) {
                 if (Vect_open_new(&Map, voutput_opt->answer, WITH_Z) < 0)
@@ -541,23 +554,24 @@ int main(int argc, char **argv)
             }
             Vect_close(&Map);
         }
-        if (strcmp(method_opt->answer, "interpolation") != 0) {
-            binning(cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
-                    scale, zexag, region3D ? -zrange_max : bbox.B, offset, method_opt->answer);
+        if (routput_opt->answer) {
+            if (strcmp(method_opt->answer, "interpolation") != 0) {
+                binning(cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
+                        scale, zexag, region3D ? -zrange_max : bbox.B, offset, method_opt->answer);
+            }
+
+            // georeference horizontally
+            Rast_get_cellhd(routput_opt->answer, "", &cellhd);
+            window.rows = cellhd.rows;
+            window.cols = cellhd.cols;
+            G_adjust_Cell_head(&window, 1, 1);
+            cellhd.north = window.north;
+            cellhd.south = window.south;
+            cellhd.east = window.east;
+            cellhd.west = window.west;
+            Rast_put_cellhd(routput_opt->answer, &cellhd);
+
         }
-
-        // georeference horizontally
-        Rast_get_cellhd(routput_opt->answer, "", &cellhd);
-        window.rows = cellhd.rows;
-        window.cols = cellhd.cols;
-        G_adjust_Cell_head(&window, 1, 1);
-        cellhd.north = window.north;
-        cellhd.south = window.south;
-        cellhd.east = window.east;
-        cellhd.west = window.west;
-        Rast_put_cellhd(routput_opt->answer, &cellhd);
-
-
         if (!loop_flag->answer)
             j++;
     }

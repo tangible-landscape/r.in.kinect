@@ -2,7 +2,7 @@ MODULE_TOPDIR = ../..
 
 PGM = r.in.kinect
 
-LIBES = $(RASTERLIB) $(INTERPFLLIB) $(QTREELIB) $(QTREEDEP) $(GMATHLIB) $(INTERPDATALIB) $(VECTORLIB) $(DBMILIB) $(GISLIB)  -rdynamic    -lboost_date_time -lboost_iostreams -lboost_chrono -lpthread -lpcl_common  -lpcl_kdtree -lpcl_octree -lpcl_search -lpcl_surface -lpcl_sample_consensus  -lpcl_filters -lpcl_features -lpcl_keypoints  -lpcl_segmentation -lpcl_tracking /usr/local/lib/libfreenect2.dylib
+LIBES = $(RASTERLIB) $(INTERPFLLIB) $(QTREELIB) $(QTREEDEP) $(GMATHLIB) $(INTERPDATALIB) $(VECTORLIB) $(DBMILIB) $(GISLIB)  -rdynamic   -lboost_system -lboost_date_time -lboost_iostreams -lboost_chrono -lpthread -lpcl_common -lpcl_io  -lpcl_kdtree -lpcl_octree -lpcl_search -lpcl_surface -lpcl_sample_consensus  -lpcl_filters -lpcl_features -lpcl_keypoints  -lpcl_segmentation -lpcl_tracking /usr/local/lib/libfreenect2.dylib
 DEPENDENCIES = $(RASTERDEP) $(INTERPFLDEP) $(QTREEDEP) $(INTERPDATADEP) $(GMATHDEP) $(VECTORDEP) $(DBMIDEP) $(GISDEP)
 EXTRA_INC = $(VECT_INC) -I/usr/local/include/opencv -I/usr/local/include -I/usr/local/include/pcl-1.7 -I/usr/local/Cellar/eigen/3.2.5/include/eigen3 -I/usr/local/include/libfreenect2
 EXTRA_CFLAGS = -std=c++11 -march=native  -Wno-deprecated -O0 $(VECT_CFLAGS)
