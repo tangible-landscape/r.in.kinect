@@ -29,7 +29,6 @@ via Luigi Alamanni 13D, San Giuliano Terme 56010 (PI), Italy
 #include <opencv2/opencv.hpp>
 #include <signal.h>
 #include <cstdlib>
-#include <limits>
 #include <string>
 #include <iostream>
 #include <Eigen/Core>
@@ -37,7 +36,7 @@ via Luigi Alamanni 13D, San Giuliano Terme 56010 (PI), Italy
 bool stop = false;
 
 enum processor{
-    CPU, OPENCL, OPENGL
+    CPU, OPENCL, OPENGL, CUDA
 };
 
 void sigint_handler(int s)
@@ -49,7 +48,8 @@ class K2G {
 
 public:
 
-    K2G(processor p): undistorted_(512, 424, 4), registered_(512, 424, 4), big_mat_(1920, 1082, 4), listener_(libfreenect2::Frame::Color | libfreenect2::Frame::Ir | libfreenect2::Frame::Depth), qnan_(std::numeric_limits<float>::quiet_NaN()){
+    K2G(processor p = CPU, bool mirror = false, std::string serial = std::string()): mirror_(mirror), listener_(libfreenect2::Frame::Color | libfreenect2::Frame::Ir | libfreenect2::Frame::Depth),
+        undistorted_(512, 424, 4), registered_(512, 424, 4), big_mat_(1920, 1082, 4), qnan_(std::numeric_limits<float>::quiet_NaN()){
 
         signal(SIGINT,sigint_handler);
 
@@ -59,27 +59,55 @@ public:
             exit(-1);
         }
 
-        serial_ = freenect2_.getDefaultDeviceSerialNumber();
-        switch(p){
-            case CPU:
-                std::cout << "creating CPU processor" << std::endl;
-                pipeline_ = new libfreenect2::CpuPacketPipeline();
-                break;
-            case OPENCL:
-                std::cout << "creating OpenCL processor" << std::endl;
-                //pipeline_ = new libfreenect2::OpenCLPacketPipeline();
-                break;
-            case OPENGL:
-                std::cout << "creating OpenGL processor" << std::endl;
-                pipeline_ = new libfreenect2::OpenGLPacketPipeline();
-                break;
-            default:
-                std::cout << "creating CPU processor" << std::endl;
-                pipeline_ = new libfreenect2::CpuPacketPipeline();
-                break;
+        switch (p)
+        {
+        case CPU:
+            std::cout << "creating Cpu processor" << std::endl;
+            if (serial.empty())
+                dev_ = freenect2_.openDefaultDevice (new libfreenect2::CpuPacketPipeline ());
+            else
+                dev_ = freenect2_.openDevice (serial, new libfreenect2::CpuPacketPipeline ());
+            std::cout << "created" << std::endl;
+            break;
+#ifdef WITH_OPENCL
+        case OPENCL:
+            std::cout << "creating OpenCL processor" << std::endl;
+            if(serial.empty())
+                dev_ = freenect2_.openDefaultDevice(new libfreenect2::OpenCLPacketPipeline());
+            else
+                dev_ = freenect2_.openDevice(serial, new libfreenect2::OpenCLPacketPipeline());
+            break;
+#endif
+        case OPENGL:
+            std::cout << "creating OpenGL processor" << std::endl;
+            if (serial.empty())
+                dev_ = freenect2_.openDefaultDevice (new libfreenect2::OpenGLPacketPipeline ());
+            else
+                dev_ = freenect2_.openDevice (serial, new libfreenect2::OpenGLPacketPipeline ());
+            break;
+#ifdef WITH_CUDA
+        case CUDA:
+            std::cout << "creating Cuda processor" << std::endl;
+            if(serial.empty())
+                dev_ = freenect2_.openDefaultDevice(new libfreenect2::CudaPacketPipeline());
+            else
+                dev_ = freenect2_.openDevice(serial, new libfreenect2::CudaPacketPipeline());
+            break;
+#endif
+        default:
+            std::cout << "creating Cpu processor" << std::endl;
+            if (serial_.empty())
+                dev_ = freenect2_.openDefaultDevice (new libfreenect2::CpuPacketPipeline ());
+            else
+                dev_ = freenect2_.openDevice (serial, new libfreenect2::CpuPacketPipeline ());
+            break;
         }
 
-        dev_ = freenect2_.openDevice(serial_, pipeline_);
+        if(serial.empty())
+            serial_ = serial;
+        else
+            serial_ = freenect2_.getDefaultDeviceSerialNumber();
+
         dev_->setColorFrameListener(&listener_);
         dev_->setIrAndDepthFrameListener(&listener_);
         dev_->start();
@@ -99,32 +127,48 @@ public:
         return rgb;
     }
 
-    // Allocates the cloud
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr getCloud(){
+        const short w = undistorted_.width;
+        const short h = undistorted_.height;
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(w, h));
+
+        return updateCloud(cloud);
+    }
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr updateCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud){
 
         listener_.waitForNewFrame(frames_);
         libfreenect2::Frame * rgb = frames_[libfreenect2::Frame::Color];
         libfreenect2::Frame * depth = frames_[libfreenect2::Frame::Depth];
 
-        registration_->apply(rgb, depth, &undistorted_, &registered_, true, &big_mat_);
-        const short w = undistorted_.width;
-        const short h = undistorted_.height;
+        registration_->apply(rgb, depth, &undistorted_, &registered_, true, &big_mat_, map_);
+        const std::size_t w = undistorted_.width;
+        const std::size_t h = undistorted_.height;
 
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(w, h));
+        cv::Mat tmp_itD0(undistorted_.height, undistorted_.width, CV_8UC4, undistorted_.data);
+        cv::Mat tmp_itRGB0(registered_.height, registered_.width, CV_8UC4, registered_.data);
 
-        const float * itD0 = (float *)undistorted_.data;
-        const char * itRGB0 = (char *)registered_.data;
+        if (mirror_ == true){
+
+            cv::flip(tmp_itD0,tmp_itD0,1);
+            cv::flip(tmp_itRGB0,tmp_itRGB0,1);
+
+        }
+
+        const float * itD0 = (float *) tmp_itD0.ptr();
+        const char * itRGB0 = (char *) tmp_itRGB0.ptr();
+
         pcl::PointXYZRGB * itP = &cloud->points[0];
         bool is_dense = true;
 
-        for(int y = 0; y < h; ++y){
+        for(std::size_t y = 0; y < h; ++y){
 
             const unsigned int offset = y * w;
             const float * itD = itD0 + offset;
             const char * itRGB = itRGB0 + offset * 4;
             const float dy = rowmap(y);
 
-            for(size_t x = 0; x < w; ++x, ++itP, ++itD, itRGB += 4 )
+            for(std::size_t x = 0; x < w; ++x, ++itP, ++itD, itRGB += 4 )
             {
                 const float depth_value = *itD / 1000.0f;
 
@@ -156,60 +200,6 @@ public:
         return cloud;
     }
 
-    // Does not allocate the cloud
-    void getCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud){
-
-        listener_.waitForNewFrame(frames_);
-        libfreenect2::Frame * rgb = frames_[libfreenect2::Frame::Color];
-        libfreenect2::Frame * depth = frames_[libfreenect2::Frame::Depth];
-
-        registration_->apply(rgb, depth, &undistorted_, &registered_, true, &big_mat_);
-        const short w = undistorted_.width;
-        const short h = undistorted_.height;
-        bool is_dense = true;
-
-        const float * itD0 = (float *)undistorted_.data;
-        const char * itRGB0 = (char *)registered_.data;
-        pcl::PointXYZRGB * itP = &cloud->points[0];
-
-        for(int y = 0; y < h; ++y){
-
-            const unsigned int offset = y * w;
-            const float * itD = itD0 + offset;
-            const char * itRGB = itRGB0 + offset * 4;
-            const float dy = rowmap(y);
-
-            for(size_t x = 0; x < w; ++x, ++itP, ++itD, itRGB += 4 )
-            {
-                const float depth_value = *itD / 1000.0f;
-
-                if(!std::isnan(depth_value) && !(std::abs(depth_value) < 0.0001)){
-
-                    const float rx = colmap(x) * depth_value;
-                    const float ry = dy * depth_value;
-                    itP->z = -depth_value;
-                    itP->x = rx;
-                    itP->y = ry;
-
-                    itP->b = itRGB[0];
-                    itP->g = itRGB[1];
-                    itP->r = itRGB[2];
-                } else {
-                    itP->z = qnan_;
-                    itP->x = qnan_;
-                    itP->y = qnan_;
-
-                    itP->b = qnan_;
-                    itP->g = qnan_;
-                    itP->r = qnan_;
-                    is_dense = false;
-                }
-            }
-        }
-        cloud->is_dense = is_dense;
-        listener_.release(frames_);
-    }
-
     void shutDown(){
         dev_->stop();
         dev_->close();
@@ -219,7 +209,10 @@ public:
         listener_.waitForNewFrame(frames_);
         libfreenect2::Frame * rgb = frames_[libfreenect2::Frame::Color];
         cv::Mat tmp(rgb->height, rgb->width, CV_8UC4, rgb->data);
-        cv::Mat r = tmp.clone();
+        cv::Mat r;
+        if (mirror_ == true) {cv::flip(tmp,r,1);}
+        else {r = tmp.clone();}
+
         listener_.release(frames_);
         return std::move(r);
     }
@@ -228,7 +221,10 @@ public:
         listener_.waitForNewFrame(frames_);
         libfreenect2::Frame * depth = frames_[libfreenect2::Frame::Depth];
         cv::Mat tmp(depth->height, depth->width, CV_8UC4, depth->data);
-        cv::Mat r = tmp.clone();
+        cv::Mat r;
+        if (mirror_ == true) {cv::flip(tmp,r,1);}
+        else {r = tmp.clone();}
+
         listener_.release(frames_);
         return std::move(r);
     }
@@ -242,6 +238,10 @@ public:
         cv::Mat tmp_color(registered_.height, registered_.width, CV_8UC4, registered_.data);
         cv::Mat r = tmp_color.clone();
         cv::Mat d = tmp_depth.clone();
+        if (mirror_ == true) {
+            cv::flip(tmp_depth,d,1);
+            cv::flip(tmp_color,r,1);
+        }
         listener_.release(frames_);
         return std::move(std::pair<cv::Mat, cv::Mat>(r,d));
     }
@@ -274,6 +274,7 @@ private:
     Eigen::Matrix<float,512,1> colmap;
     Eigen::Matrix<float,424,1> rowmap;
     std::string serial_;
-    int map_[512 * 424]; // will be used in the next libfreenect2 update
+    int map_[512 * 424];
     float qnan_;
+    bool mirror_;
 };

@@ -429,7 +429,7 @@ int main(int argc, char **argv)
 
 
     K2G k2g(OPENGL);
-    k2g.getCloud(cloud);
+    k2g.getCloud();
     cloud->sensor_orientation_.w() = 0.0;
     cloud->sensor_orientation_.x() = 1.0;
     cloud->sensor_orientation_.y() = 0.0;
@@ -438,7 +438,6 @@ int main(int argc, char **argv)
     // get terminating signals
     signal(SIGTERM, terminate);
     signal(SIGINT, terminate);
-    int max_points = 0;
     while (j < 1) {
         if (signaled == 1) {
             break;
@@ -491,13 +490,6 @@ int main(int argc, char **argv)
             if (autoclip_E > 0 || autoclip_N > 0 || autoclip_S > 0 || autoclip_W > 0)
                 trimNSEW(cloud, autoclip_N, autoclip_S, autoclip_E, autoclip_W);
         }
-
-//        if (max_points < cloud->points.size()) {
-//            max_points = cloud->points.size();
-//        }
-//        std::cout << (max_points - cloud->points.size()) / float(max_points) << std::endl;
-//        if ((max_points - cloud->points.size()) / float(max_points) > 0.01)
-//            continue;
 
         if (smooth_radius_opt->answer)
             smooth(cloud, atof(smooth_radius_opt->answer));
