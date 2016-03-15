@@ -30,6 +30,7 @@
 #include "binning.h"
 #include "calibrate.h"
 #include "interp.h"
+#include "analyses.h"
 
 extern "C" {
 #include <grass/gis.h>
@@ -227,7 +228,8 @@ int main(int argc, char **argv)
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
-            *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt;
+            *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
+            *contours_map, *contours_step;
     struct Flag *loop_flag, *calib_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -359,6 +361,16 @@ int main(int argc, char **argv)
     numscan_opt->description = _("Number of scans to intergrate");
     numscan_opt->required = NO;
 
+    contours_map = G_define_standard_option(G_OPT_V_MAP);
+    contours_map->key = "contours";
+    contours_map->description = _("Name of contour vector map");
+
+    contours_step = G_define_option();
+    contours_step->key = "contours_step";
+    contours_step->description = _("Increment between contour levels");
+    contours_step->type = TYPE_DOUBLE;
+    contours_step->required = NO;
+
     loop_flag = G_define_flag();
     loop_flag->key = 'l';
     loop_flag->description = _("Keep scanning in a loop");
@@ -370,6 +382,7 @@ int main(int argc, char **argv)
 
     G_option_required(calib_flag, routput_opt, voutput_opt, ply_opt, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
+    G_option_requires(contours_map, contours_step, NULL);
 
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
@@ -562,6 +575,11 @@ int main(int argc, char **argv)
             cellhd.east = window.east;
             cellhd.west = window.west;
             Rast_put_cellhd(routput_opt->answer, &cellhd);
+
+            if (contours_map->answer) {
+                contours(routput_opt->answer, contours_map->answer, atof(contours_step->answer));
+            }
+
 
         }
         if (!loop_flag->answer)
