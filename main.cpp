@@ -363,6 +363,7 @@ int main(int argc, char **argv)
 
     contours_map = G_define_standard_option(G_OPT_V_MAP);
     contours_map->key = "contours";
+    contours_map->required = NO;
     contours_map->description = _("Name of contour vector map");
 
     contours_step = G_define_option();
