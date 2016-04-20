@@ -230,7 +230,7 @@ int main(int argc, char **argv)
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
             *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
             *contours_map, *contours_step;
-    struct Flag *loop_flag, *calib_flag;
+    struct Flag *loop_flag, *calib_flag, *equalize_flag;
     struct Map_info Map;
     struct line_pnts *Points;
     struct line_cats *Cats;
@@ -371,6 +371,10 @@ int main(int argc, char **argv)
     contours_step->description = _("Increment between contour levels");
     contours_step->type = TYPE_DOUBLE;
     contours_step->required = NO;
+
+    equalize_flag = G_define_flag();
+    equalize_flag->key = 'e';
+    equalize_flag->description = _("Histogram equalized color table");
 
     loop_flag = G_define_flag();
     loop_flag->key = 'l';
@@ -579,6 +583,9 @@ int main(int argc, char **argv)
 
             if (contours_map->answer) {
                 contours(routput_opt->answer, contours_map->answer, atof(contours_step->answer));
+            }
+            if (equalize_flag->answer) {
+                equalized(routput_opt->answer);
             }
 
 
