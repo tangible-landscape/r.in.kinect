@@ -517,21 +517,6 @@ int main(int argc, char **argv)
         scale = ((window.north - window.south) / (bbox.N - bbox.S) +
                  (window.east - window.west) / (bbox.E - bbox.W)) / 2;
 
-        // write to PLY
-        if (ply_opt->answer) {
-            pcl::PLYWriter writer;
-            for (int i=0; i < cloud->points.size(); i++) {
-                if (region3D)
-                    cloud->points[i].z = (cloud->points[i].z + zrange_max) * scale / zexag + offset;
-                else
-                    cloud->points[i].z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
-                cloud->points[i].x = (cloud->points[i].x - bbox.W) * scale + window.west;
-                cloud->points[i].y = (cloud->points[i].y - bbox.S) * scale + window.south;
-
-            }
-            writer.write<pcl::PointXYZRGB>(ply_opt->answer, *cloud, true, true);
-        }
-
         // write to vector
         if (voutput_opt->answer || (routput_opt->answer && strcmp(method_opt->answer, "interpolation") == 0)) {
             double z;
@@ -587,9 +572,22 @@ int main(int argc, char **argv)
             if (equalize_flag->answer) {
                 equalized(routput_opt->answer);
             }
-
-
         }
+        // write to PLY
+        if (ply_opt->answer) {
+            pcl::PLYWriter writer;
+            for (int i=0; i < cloud->points.size(); i++) {
+                if (region3D)
+                    cloud->points[i].z = (cloud->points[i].z + zrange_max) * scale / zexag + offset;
+                else
+                    cloud->points[i].z = (cloud->points[i].z - bbox.B) * scale / zexag + offset;
+                cloud->points[i].x = (cloud->points[i].x - bbox.W) * scale + window.west;
+                cloud->points[i].y = (cloud->points[i].y - bbox.S) * scale + window.south;
+
+            }
+            writer.write<pcl::PointXYZRGB>(ply_opt->answer, *cloud, true, true);
+        }
+
         if (!loop_flag->answer)
             j++;
     }
