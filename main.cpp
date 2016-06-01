@@ -219,7 +219,7 @@ void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &clip_N,
         else
             break;
     }
-    std::cout << clip_N << " " << clip_S << " " << clip_E << " " << clip_W << std::endl;
+    //std::cout << clip_N << " " << clip_S << " " << clip_E << " " << clip_W << std::endl;
 
 }
 
@@ -229,7 +229,7 @@ int main(int argc, char **argv)
     struct Option *voutput_opt, *routput_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
             *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
-            *contours_map, *contours_step;
+            *contours_map, *contours_step, *draw_opt, *draw_vector_opt, *draw_threshold_opt;
     struct Flag *loop_flag, *calib_flag, *equalize_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -385,12 +385,54 @@ int main(int argc, char **argv)
     calib_flag->description = _("Calibrate");
     calib_flag->guisection = _("Calibration");
 
-    G_option_required(calib_flag, routput_opt, voutput_opt, ply_opt, NULL);
+    draw_opt = G_define_option();
+    draw_opt->key = "draw";
+    draw_opt->description = _("Draw with laser pointer");
+    draw_opt->type = TYPE_STRING;
+    draw_opt->required = NO;
+    draw_opt->options = "point,line,area";
+    draw_opt->answer = "point";
+    draw_opt->guisection = _("Drawing");
+
+    draw_threshold_opt = G_define_option();
+    draw_threshold_opt->key = "draw_threshold";
+    draw_threshold_opt->description = _("Brightness threshold for detecting laser pointer");
+    draw_threshold_opt->type = TYPE_INTEGER;
+    draw_threshold_opt->required = YES;
+    draw_threshold_opt->answer = "760";
+    draw_threshold_opt->guisection = _("Drawing");
+
+    draw_vector_opt = G_define_standard_option(G_OPT_V_OUTPUT);
+    draw_vector_opt->key = "draw_output";
+    draw_vector_opt->guisection = _("Drawing");
+    draw_vector_opt->required = NO;
+
+    G_option_required(calib_flag, routput_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
     G_option_requires(contours_map, contours_step, NULL);
 
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
+
+    // drawing
+    int vect_type = -1;
+    if (strcmp(draw_opt->answer, "point") == 0)
+        vect_type = GV_POINT;
+    else if (strcmp(draw_opt->answer, "line") == 0)
+        vect_type = GV_LINE;
+    else if (strcmp(draw_opt->answer, "area") == 0)
+        vect_type = GV_AREA;
+
+    std::vector<double> draw_x;
+    std::vector<double> draw_y;
+    std::vector<double> draw_z;
+    bool drawing = false;
+
+    struct Map_info Map_draw;
+    struct line_pnts *Points_draw;
+    struct line_cats *Cats_draw;
+    Points_draw = Vect_new_line_struct();
+    Cats_draw = Vect_new_cats_struct();
 
     Points = Vect_new_line_struct();
     Cats = Vect_new_cats_struct();
@@ -462,8 +504,10 @@ int main(int argc, char **argv)
         }
 
         cloud = k2g.getCloud();
-        for (int s = 0; s < atoi(numscan_opt->answer) - 1; s++)
-            *(cloud) += *(k2g.getCloud());
+        if (!drawing) {
+            for (int s = 0; s < atoi(numscan_opt->answer) - 1; s++)
+                *(cloud) += *(k2g.getCloud());
+        }
 
         // remove invalid points
         std::vector<int> index_nans;
@@ -493,6 +537,26 @@ int main(int argc, char **argv)
         if (trim_opt->answer != NULL) {
             clipNSEW(cloud, clip_N, clip_S, clip_E, clip_W);
         }
+        // drawing
+        if (draw_vector_opt->answer) {
+            int maxbright = 0;
+            int maxbright_idx = 0;
+            for (int i=0; i < cloud->points.size(); i++) {
+                Eigen::Vector3i rgbv = cloud->points[i].getRGBVector3i();
+                int sum = rgbv[0] + rgbv[1] + rgbv[2];
+                if (sum > maxbright) {
+                    maxbright = sum;
+                    maxbright_idx = i;
+                }
+            }
+            if (maxbright >= atoi(draw_threshold_opt->answer)) {
+                drawing = true;
+                draw_x.push_back(cloud->points[maxbright_idx].x);
+                draw_y.push_back(cloud->points[maxbright_idx].y);
+                draw_z.push_back(cloud->points[maxbright_idx].z);
+                continue;
+            }
+        }
 
         pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
         sor.setInputCloud(cloud);
@@ -509,14 +573,62 @@ int main(int argc, char **argv)
                 trimNSEW(cloud, autoclip_N, autoclip_S, autoclip_E, autoclip_W);
         }
 
-        if (smooth_radius_opt->answer)
-            smooth(cloud, atof(smooth_radius_opt->answer));
+        if (drawing) {
+            // get Z scaling
+            getMinMax(*cloud, bbox);
+            scale = ((window.north - window.south) / (bbox.N - bbox.S) +
+                     (window.east - window.west) / (bbox.E - bbox.W)) / 2;
+            Vect_reset_line(Points_draw);
+            Vect_reset_cats(Cats_draw);
+            if (Vect_open_new(&Map_draw, draw_vector_opt->answer, WITHOUT_Z) < 0)
+                G_fatal_error(_("Unable to create vector map <%s>"), draw_vector_opt->answer);
+            // draw line
+            double x, y, z;
+            for (int j = 0; j < draw_x.size();j++) {
+                x = (draw_x[j] - bbox.W) * scale + window.west;
+                y = (draw_y[j] - bbox.S) * scale + window.south;
+                z = (draw_z[j] - bbox.B) * scale / zexag + offset;
+                if (vect_type == GV_POINT) {
+                    if(j == draw_x.size() - 1)
+                        Vect_append_point(Points_draw, x, y, z);
+                }
+                else
+                    Vect_append_point(Points_draw, x, y, z);
+            }
+            if (vect_type == GV_AREA) {
+                x = (draw_x[0] - bbox.W) * scale + window.west;
+                y = (draw_y[0] - bbox.S) * scale + window.south;
+                z = (draw_z[0] - bbox.B) * scale / zexag + offset;
+                Vect_append_point(Points_draw, x, y, z);
+                Vect_write_line(&Map_draw, GV_BOUNDARY, Points_draw, Cats_draw);
+                double cx, cy;
+                Vect_get_point_in_poly(Points_draw, &cx, &cy);
+                Vect_reset_line(Points_draw);
+                Vect_reset_cats(Cats_draw);
+                Vect_append_point(Points_draw, cx, cy, 0);
+                Vect_cat_set(Cats_draw, 1, 1);
+                Vect_write_line(&Map_draw, GV_CENTROID, Points_draw, Cats_draw);
+            }
+            else {
+                Vect_cat_set(Cats_draw, 1, 1);
+                Vect_write_line(&Map_draw, vect_type, Points_draw, Cats_draw);
+            }
+            Vect_build(&Map_draw);
+            Vect_close(&Map_draw);
+            drawing = false;
+            draw_x.clear();
+            draw_y.clear();
+            draw_z.clear();
+        }
+        if (voutput_opt->answer || routput_opt->answer || ply_opt->answer) {
+            if (smooth_radius_opt->answer)
+                smooth(cloud, atof(smooth_radius_opt->answer));
 
-        // get Z scaling
-        getMinMax(*cloud, bbox);
-        scale = ((window.north - window.south) / (bbox.N - bbox.S) +
-                 (window.east - window.west) / (bbox.E - bbox.W)) / 2;
-
+            // get Z scaling
+            getMinMax(*cloud, bbox);
+            scale = ((window.north - window.south) / (bbox.N - bbox.S) +
+                     (window.east - window.west) / (bbox.E - bbox.W)) / 2;
+        }
         // write to vector
         if (voutput_opt->answer || (routput_opt->answer && strcmp(method_opt->answer, "interpolation") == 0)) {
             double z;
