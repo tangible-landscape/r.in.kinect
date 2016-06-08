@@ -31,6 +31,7 @@
 #include "calibrate.h"
 #include "interp.h"
 #include "analyses.h"
+#include "drawing.h"
 
 extern "C" {
 #include <grass/gis.h>
@@ -427,6 +428,7 @@ int main(int argc, char **argv)
     std::vector<double> draw_y;
     std::vector<double> draw_z;
     bool drawing = false;
+    unsigned int last_detected_loop_count = 1e6;
 
     struct Map_info Map_draw;
     struct line_pnts *Points_draw;
@@ -554,7 +556,14 @@ int main(int argc, char **argv)
                 draw_x.push_back(cloud->points[maxbright_idx].x);
                 draw_y.push_back(cloud->points[maxbright_idx].y);
                 draw_z.push_back(cloud->points[maxbright_idx].z);
+                last_detected_loop_count = 0;
                 continue;
+            }
+            else {
+              last_detected_loop_count++;
+              if (last_detected_loop_count <= 2) {
+                  continue;
+                }
             }
         }
 
@@ -576,49 +585,19 @@ int main(int argc, char **argv)
         if (drawing) {
             // get Z scaling
             getMinMax(*cloud, bbox);
-            scale = ((window.north - window.south) / (bbox.N - bbox.S) +
-                     (window.east - window.west) / (bbox.E - bbox.W)) / 2;
-            Vect_reset_line(Points_draw);
-            Vect_reset_cats(Cats_draw);
-            if (Vect_open_new(&Map_draw, draw_vector_opt->answer, WITHOUT_Z) < 0)
-                G_fatal_error(_("Unable to create vector map <%s>"), draw_vector_opt->answer);
-            // draw line
-            double x, y, z;
-            for (int j = 0; j < draw_x.size();j++) {
-                x = (draw_x[j] - bbox.W) * scale + window.west;
-                y = (draw_y[j] - bbox.S) * scale + window.south;
-                z = (draw_z[j] - bbox.B) * scale / zexag + offset;
-                if (vect_type == GV_POINT) {
-                    if(j == draw_x.size() - 1)
-                        Vect_append_point(Points_draw, x, y, z);
-                }
-                else
-                    Vect_append_point(Points_draw, x, y, z);
+            if ((vect_type == GV_AREA && draw_x.size() > 2) ||
+                (vect_type == GV_LINE && draw_x.size() > 1) ||
+                (vect_type == GV_POINT && draw_x.size() > 0)) {
+                save_vector(draw_vector_opt->answer, Map_draw, Points_draw, Cats_draw,
+                            bbox, window, draw_x, draw_y, draw_z, vect_type, offset, zexag);
             }
-            if (vect_type == GV_AREA) {
-                x = (draw_x[0] - bbox.W) * scale + window.west;
-                y = (draw_y[0] - bbox.S) * scale + window.south;
-                z = (draw_z[0] - bbox.B) * scale / zexag + offset;
-                Vect_append_point(Points_draw, x, y, z);
-                Vect_write_line(&Map_draw, GV_BOUNDARY, Points_draw, Cats_draw);
-                double cx, cy;
-                Vect_get_point_in_poly(Points_draw, &cx, &cy);
-                Vect_reset_line(Points_draw);
-                Vect_reset_cats(Cats_draw);
-                Vect_append_point(Points_draw, cx, cy, 0);
-                Vect_cat_set(Cats_draw, 1, 1);
-                Vect_write_line(&Map_draw, GV_CENTROID, Points_draw, Cats_draw);
-            }
-            else {
-                Vect_cat_set(Cats_draw, 1, 1);
-                Vect_write_line(&Map_draw, vect_type, Points_draw, Cats_draw);
-            }
-            Vect_build(&Map_draw);
-            Vect_close(&Map_draw);
+            else
+                G_warning(_("Tolopogically incorrect vector feature"));
             drawing = false;
             draw_x.clear();
             draw_y.clear();
             draw_z.clear();
+            last_detected_loop_count = 1e6;
         }
         if (voutput_opt->answer || routput_opt->answer || ply_opt->answer) {
             if (smooth_radius_opt->answer)
