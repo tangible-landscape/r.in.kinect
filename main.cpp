@@ -28,6 +28,7 @@
 
 #include "k2g.h"
 #include "binning.h"
+#include "binning_color.h"
 #include "calibrate.h"
 #include "interp.h"
 #include "analyses.h"
@@ -227,7 +228,7 @@ void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &clip_N,
 int main(int argc, char **argv)
 {
     struct GModule *module;
-    struct Option *voutput_opt, *routput_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
+    struct Option *voutput_opt, *routput_opt, *color_output_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
             *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
             *contours_map, *contours_step, *draw_opt, *draw_vector_opt, *draw_threshold_opt;
@@ -258,6 +259,12 @@ int main(int argc, char **argv)
     resolution_opt->label = _("Raster resolution");
     resolution_opt->description = _("Recommended values between 0.001-0.003");
     resolution_opt->guisection = _("Output");
+
+    color_output_opt = G_define_standard_option(G_OPT_R_BASENAME_OUTPUT);
+    color_output_opt->key = "color_output";
+    color_output_opt->description = _("Basename for color output");
+    color_output_opt->guisection = _("Output");
+    color_output_opt->required = NO;
 
     voutput_opt = G_define_standard_option(G_OPT_V_OUTPUT);
     voutput_opt->required = NO;
@@ -410,6 +417,7 @@ int main(int argc, char **argv)
 
     G_option_required(calib_flag, routput_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
+    G_option_requires(color_output_opt, resolution_opt, NULL);
     G_option_requires(contours_map, contours_step, NULL);
 
     if (G_parser(argc, argv))
@@ -599,7 +607,7 @@ int main(int argc, char **argv)
             draw_z.clear();
             last_detected_loop_count = 1e6;
         }
-        if (voutput_opt->answer || routput_opt->answer || ply_opt->answer) {
+        if (voutput_opt->answer || routput_opt->answer || ply_opt->answer || color_output_opt->answer) {
             if (smooth_radius_opt->answer)
                 smooth(cloud, atof(smooth_radius_opt->answer));
 
@@ -640,14 +648,20 @@ int main(int argc, char **argv)
             }
             Vect_close(&Map);
         }
-        if (routput_opt->answer) {
-            if (strcmp(method_opt->answer, "interpolation") != 0) {
-                binning(cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
-                        scale, zexag, region3D ? -zrange_max : bbox.B, offset, method_opt->answer);
+        if (routput_opt->answer || color_output_opt->answer) {
+            if (routput_opt->answer) {
+                if (strcmp(method_opt->answer, "interpolation") != 0) {
+                    binning(cloud, routput_opt->answer, &bbox, atof(resolution_opt->answer),
+                            scale, zexag, region3D ? -zrange_max : bbox.B, offset, method_opt->answer);
+                }
+                Rast_get_cellhd(routput_opt->answer, "", &cellhd);
+            }
+            if (color_output_opt) {
+                binning_color(cloud, color_output_opt->answer, &bbox, atof(resolution_opt->answer));
+                Rast_get_cellhd(get_color_name(color_output_opt->answer, "r"), "", &cellhd);
             }
 
             // georeference horizontally
-            Rast_get_cellhd(routput_opt->answer, "", &cellhd);
             window.rows = cellhd.rows;
             window.cols = cellhd.cols;
             G_adjust_Cell_head(&window, 1, 1);
@@ -655,7 +669,16 @@ int main(int argc, char **argv)
             cellhd.south = window.south;
             cellhd.east = window.east;
             cellhd.west = window.west;
-            Rast_put_cellhd(routput_opt->answer, &cellhd);
+            if (routput_opt->answer)
+                Rast_put_cellhd(routput_opt->answer, &cellhd);
+            if (color_output_opt->answer) {
+                char* output_r = get_color_name(color_output_opt->answer, "r");
+                char* output_g = get_color_name(color_output_opt->answer, "g");
+                char* output_b = get_color_name(color_output_opt->answer, "b");
+                Rast_put_cellhd(output_r, &cellhd);
+                Rast_put_cellhd(output_g, &cellhd);
+                Rast_put_cellhd(output_b, &cellhd);
+            }
 
             if (contours_map->answer) {
                 contours(routput_opt->answer, contours_map->answer, atof(contours_step->answer));
