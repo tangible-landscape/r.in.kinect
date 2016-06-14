@@ -133,10 +133,11 @@ inline void binning_color(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                     Rast_set_c_value(ptr_g, sum2_g / count, CELL_TYPE);
                     Rast_set_c_value(ptr_b, sum2_b / count, CELL_TYPE);
                 }
-                else
+                else {
                     Rast_set_null_value(ptr_r, 1, CELL_TYPE);
                     Rast_set_null_value(ptr_g, 1, CELL_TYPE);
                     Rast_set_null_value(ptr_b, 1, CELL_TYPE);
+                }
             }
             else {
                 Rast_set_c_value(ptr_r, (sum_r / n), CELL_TYPE);
