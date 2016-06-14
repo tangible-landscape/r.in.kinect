@@ -418,7 +418,8 @@ int main(int argc, char **argv)
     G_option_required(calib_flag, routput_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
     G_option_requires(color_output_opt, resolution_opt, NULL);
-    G_option_requires(contours_map, contours_step, NULL);
+    G_option_requires(contours_map, contours_step, routput_opt, NULL);
+    G_option_requires(equalize_flag, routput_opt);
 
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
@@ -648,6 +649,7 @@ int main(int argc, char **argv)
             }
             Vect_close(&Map);
         }
+
         if (routput_opt->answer || color_output_opt->answer) {
             if (routput_opt->answer) {
                 if (strcmp(method_opt->answer, "interpolation") != 0) {
@@ -656,7 +658,7 @@ int main(int argc, char **argv)
                 }
                 Rast_get_cellhd(routput_opt->answer, "", &cellhd);
             }
-            if (color_output_opt) {
+            if (color_output_opt->answer) {
                 binning_color(cloud, color_output_opt->answer, &bbox, atof(resolution_opt->answer));
                 Rast_get_cellhd(get_color_name(color_output_opt->answer, "r"), "", &cellhd);
             }
