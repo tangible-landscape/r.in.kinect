@@ -149,24 +149,24 @@ inline void binning(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
         FCELL data2 = (FCELL) (zmin + j * zstep);
         switch (j) {
         case 1:
-            Rast_add_f_color_rule(&data1, 0, 191, 191,
-                                  &data2, 0, 255, 0, &colors);
+            Rast_add_f_color_rule(&data1, 50, 121, 70,
+                                  &data2, 90, 148, 80, &colors);
             break;
         case 2:
-            Rast_add_f_color_rule(&data1, 0, 255, 0,
-                                  &data2, 255, 255, 0, &colors);
+            Rast_add_f_color_rule(&data1, 90, 148, 80,
+                                  &data2, 148, 174, 92, &colors);
             break;
         case 3:
-            Rast_add_f_color_rule(&data1, 255, 255, 0,
-                                  &data2, 255, 127, 0, &colors);
+            Rast_add_f_color_rule(&data1, 148, 174, 92,
+                                  &data2, 224, 205, 103, &colors);
             break;
         case 4:
-            Rast_add_f_color_rule(&data1, 255, 127, 0,
-                                  &data2, 191, 127, 63, &colors);
+            Rast_add_f_color_rule(&data1, 224, 205, 103,
+                                  &data2, 186, 151, 74, &colors);
             break;
         case 5:
-            Rast_add_f_color_rule(&data1, 191, 127, 63,
-                                  &data2, 200, 200, 200, &colors);
+            Rast_add_f_color_rule(&data1, 186, 151, 74,
+                                  &data2, 159, 100, 44, &colors);
             break;
         }
     }
