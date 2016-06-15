@@ -25,7 +25,11 @@ We also need opencv:
 
     sudo apt-get install libopencv-dev
 
-Then install GRASS GIS 7. First install [dependencies](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#Current_stable_Ubuntu_version) including [PROJ4, GEOS, GDAL](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#Using_pre-compiled_dev_Packages_for_PROJ.4.2C_GEOS_and_GDAL). Then configure GRASS GIS, use [command here](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#GRASS_GIS) but scroll down to GRASS GIS 7 example configuration and do what the note below says. Then run `make`.
+Then install GRASS GIS 7.2. First install [dependencies](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#Current_stable_Ubuntu_version) including [PROJ4, GEOS, GDAL](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#Using_pre-compiled_dev_Packages_for_PROJ.4.2C_GEOS_and_GDAL). Then download GRASS GIS with subversion:
+
+    svn checkout https://svn.osgeo.org/grass/grass/branches/releasebranch_7_2 grass72_release
+    
+configure GRASS GIS, use [command here](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#GRASS_GIS) but scroll down to GRASS GIS 7 example configuration (not GRASS 6) and follow the note below the configure command. Then run `make`.
 
 Finally clone this repository and try to compile it with `make MODULE_TOPDIR=path/to/grass`. You might need to edit the Makefile when an error ocurrs. Finally, `make install` in GRASS folder is optional, without it you can launch GRASS as `./bin.x86_64-pc-linux-gnu/grass71.
 
