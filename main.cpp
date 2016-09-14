@@ -45,8 +45,6 @@ extern "C" {
 #include <stdlib.h>
 #include <signal.h>
 
-#define SIGMYINPUT 50
-
 
 static volatile sig_atomic_t signaled = 0;
 static volatile sig_atomic_t signal_new_input = 0;
@@ -666,7 +664,7 @@ int main(int argc, char **argv)
     // get terminating signals
     signal(SIGTERM, terminate);
     signal(SIGINT, terminate);
-    signal(SIGMYINPUT, signal_read_new_input);
+    signal(SIGUSR1, signal_read_new_input);
     while (j < 1) {
         if (signaled == 1) {
             break;
