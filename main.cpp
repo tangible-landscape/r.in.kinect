@@ -566,7 +566,7 @@ int main(int argc, char **argv)
     G_option_requires(routput_opt, resolution_opt, NULL);
     G_option_requires(color_output_opt, resolution_opt, NULL);
     G_option_requires(contours_map, contours_step_opt, routput_opt, NULL);
-    G_option_requires(equalize_flag, routput_opt);
+    G_option_requires(equalize_flag, routput_opt, NULL);
 
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
