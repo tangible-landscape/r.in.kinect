@@ -19,7 +19,7 @@ Installation was tested on Ubuntu 15.10 and 14.04. Newer versions might be easie
 
 Install dependencies:
 
-    sudo apt-get install build-essential cmake pkg-config libusb-1.0-0-dev libturbojpeg libjpeg-turbo8-dev libglfw3-dev
+    sudo apt-get install build-essential cmake pkg-config git libusb-1.0-0-dev libturbojpeg libjpeg-turbo8-dev libglfw3-dev
 
 Download libfreenect2 source code (latest release) from here:
 https://github.com/OpenKinect/libfreenect2/releases
@@ -40,6 +40,7 @@ then replug the Kinect. Run the test program:
 
 <!--Also I experienced problem with nvidia drivers. I used proprietary drivers installed through "Additional drivers" dialog but then I needed to uninstall package nvidia-opencl-idc-? and install ocl-icd-opencl-dev (but not sure if that did the trick)-->
 
+#### PCL
 Once libfreenect2 Protonect binary is working, install PCL. It is recomended to compile it instead using PPA. Tested is PCL 1.7.2. It needs some dependencies:
 
     sudo apt-get install libboost-all-dev libeigen3-dev libflann-dev
@@ -51,11 +52,12 @@ Download PCL latest release from https://github.com/PointCloudLibrary/pcl/releas
     cmake -DCMAKE_BUILD_TYPE=Release ..
     make -j4
     sudo make -j2 install
-
+#### opencv
 We also need opencv:
 
     sudo apt-get install libopencv-dev
 
+#### GRASS GIS
 Then install GRASS GIS 7.2. First install [dependencies](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#Current_stable_Ubuntu_version) including [PROJ4, GEOS, GDAL](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#Using_pre-compiled_dev_Packages_for_PROJ.4.2C_GEOS_and_GDAL). 
 
     sudo apt-get install \
@@ -96,26 +98,34 @@ Then download GRASS GIS with subversion, configure and compile:
     svn checkout https://svn.osgeo.org/grass/grass/branches/releasebranch_7_2 grass72_release
     cd grass72_release
     CFLAGS="-O2 -Wall" LDFLAGS="-s" ./configure \
-    --enable-largefile=yes \
-    --with-nls \
-    --with-cxx \
-    --with-readline \
-    --with-pthread \
-    --with-proj-share=/usr/share/proj \
-    --with-geos=/usr/bin/geos-config \
-    --with-wxwidgets \
-    --with-cairo \
-    --with-opengl-libs=/usr/include/GL \
-    --with-freetype=yes --with-freetype-includes="/usr/include/freetype2/" \
-    --with-postgres=yes --with-postgres-includes="/usr/include/postgresql" \
-    --with-sqlite=yes \
-    --with-mysql=yes --with-mysql-includes="/usr/include/mysql" \
-    --with-odbc=no \
-    --with-liblas=yes --with-liblas-config=/usr/bin/liblas-config
+      --enable-largefile=yes \
+      --with-nls \
+      --with-cxx \
+      --with-readline \
+      --with-pthread \
+      --with-proj-share=/usr/share/proj \
+      --with-geos=/usr/bin/geos-config \
+      --with-wxwidgets \
+      --with-cairo \
+      --with-opengl-libs=/usr/include/GL \
+      --with-freetype=yes --with-freetype-includes="/usr/include/freetype2/" \
+      --with-postgres=yes --with-postgres-includes="/usr/include/postgresql" \
+      --with-sqlite=yes \
+      --with-mysql=yes --with-mysql-includes="/usr/include/mysql" \
+      --with-odbc=no \
+      --with-liblas=yes --with-liblas-config=/usr/bin/liblas-config
+    make -j4
+    sudo make install
     
-configure GRASS GIS, use [command here](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#GRASS_GIS) but scroll down to GRASS GIS 7 example configuration (not GRASS 6) and follow the note below the configure command. Then run `make`.
+#### r.in.kinect
+Finally clone this repository:
 
-Finally clone this repository and try to compile it with `make MODULE_TOPDIR=path/to/grass`. You might need to edit the Makefile when an error ocurrs. Finally, `make install` in GRASS folder is optional, without it you can launch GRASS as `./bin.x86_64-pc-linux-gnu/grass71.
+    git clone https://github.com/tangible-landscape/r.in.kinect.git
+    cd r.in.kinect
+    make MODULE_TOPDIR=../path/to/grass
+    make install MODULE_TOPDIR=../path/to/grass
+    
+You might need to edit the Makefile when an error ocurrs.
 
 
 ### Mac OSX
