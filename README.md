@@ -57,7 +57,7 @@ We also need opencv:
     sudo apt-get install libopencv-dev
 
 Then install GRASS GIS 7.2. First install [dependencies](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#Current_stable_Ubuntu_version) including [PROJ4, GEOS, GDAL](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#Using_pre-compiled_dev_Packages_for_PROJ.4.2C_GEOS_and_GDAL). 
-# this is a single command, please copy-paste it entirely into the terminal:
+
     sudo apt-get install \
        build-essential \
        flex make bison gcc libgcc1 g++ cmake ccache \
@@ -91,9 +91,27 @@ Then install GRASS GIS 7.2. First install [dependencies](https://grasswiki.osgeo
        libgeos-dev \
        libgdal-dev python-gdal gdal-bin
 
-Then download GRASS GIS with subversion:
+Then download GRASS GIS with subversion, configure and compile:
 
     svn checkout https://svn.osgeo.org/grass/grass/branches/releasebranch_7_2 grass72_release
+    cd grass72_release
+    CFLAGS="-O2 -Wall" LDFLAGS="-s" ./configure \
+    --enable-largefile=yes \
+    --with-nls \
+    --with-cxx \
+    --with-readline \
+    --with-pthread \
+    --with-proj-share=/usr/share/proj \
+    --with-geos=/usr/bin/geos-config \
+    --with-wxwidgets \
+    --with-cairo \
+    --with-opengl-libs=/usr/include/GL \
+    --with-freetype=yes --with-freetype-includes="/usr/include/freetype2/" \
+    --with-postgres=yes --with-postgres-includes="/usr/include/postgresql" \
+    --with-sqlite=yes \
+    --with-mysql=yes --with-mysql-includes="/usr/include/mysql" \
+    --with-odbc=no \
+    --with-liblas=yes --with-liblas-config=/usr/bin/liblas-config
     
 configure GRASS GIS, use [command here](https://grasswiki.osgeo.org/wiki/Compile_and_Install_Ubuntu#GRASS_GIS) but scroll down to GRASS GIS 7 example configuration (not GRASS 6) and follow the note below the configure command. Then run `make`.
 
