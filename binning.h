@@ -135,7 +135,7 @@ inline void binning(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
     /* close raster file & write history */
     Rast_close(out_fd);
 
-    /* colortable for elevations */
+    /* colortable for elevations
     struct Colors colors;
     struct FPRange range;
     double zmin, zmax;
@@ -174,7 +174,7 @@ inline void binning(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
     Rast_write_colors(output, mapset, &colors);
     Rast_quantize_fp_map_range(output, mapset,
                 (DCELL) zmin - 0.5, (DCELL) zmax + 0.5,
-                (CELL) (zmin - 0.5), (CELL) (zmax + 0.5));
+                (CELL) (zmin - 0.5), (CELL) (zmax + 0.5));*/
 }
 
 #endif // BINNING_H

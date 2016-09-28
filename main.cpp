@@ -845,7 +845,7 @@ int main(int argc, char **argv)
                 Rast_put_cellhd(output_g, &cellhd);
                 Rast_put_cellhd(output_b, &cellhd);
             }
-
+            set_default_color(routput);
             if (contours_output) {
                 contours(routput, contours_output, atof(contours_step_opt->answer));
             }
