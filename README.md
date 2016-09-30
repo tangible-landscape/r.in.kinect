@@ -26,7 +26,7 @@ https://github.com/OpenKinect/libfreenect2/releases
 and unpack it. Go to that directory and run:
 
     mkdir build && cd build
-    cmake.. 
+    cmake .. 
     make
     sudo make install
     
