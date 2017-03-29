@@ -97,7 +97,7 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                     struct Cell_head &window, double &offset, bool &region3D,
                     char* &color_output, char* &voutput, char * &ply,
                     char* &contours_output, double &contours_step,
-                    int &draw_type, int &draw_threshold, char* &draw_output, bool &paused) {
+                    int &draw_type, int &draw_threshold, char* &draw_output, bool &paused, bool &resume_once) {
     char buf[200];
     char **tokens;
     char **tokens2;
@@ -197,6 +197,9 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
             }
             else if (strcmp(tokens[0], "resume") == 0) {
                 paused = false;
+            }
+            else if (strcmp(tokens[0], "resume_once") == 0) {
+                resume_once = true;
             }
             G_free_tokens(tokens);
         }
@@ -658,6 +661,7 @@ int main(int argc, char **argv)
     bool region3D = false;
 
     bool paused = false;
+    bool resume_once = false;
 
     update_input_region(raster_opt->answer, region_opt->answer, window, offset, region3D);
 
@@ -684,12 +688,15 @@ int main(int argc, char **argv)
                            window, offset, region3D,
                            color_output, voutput, ply,
                            contours_output, contours_step,
-                           vect_type, draw_threshold, draw_output, paused);
+                           vect_type, draw_threshold, draw_output, paused, resume_once);
         }
 
         cloud = k2g.getCloud();
         if (paused) {
-            continue;
+            if (!resume_once)
+                continue;
+            else
+                resume_once = false;
         }
         if (!drawing) {
             for (int s = 0; s < numscan - 1; s++)
@@ -736,6 +743,7 @@ int main(int argc, char **argv)
                     maxbright_idx = i;
                 }
             }
+            std::cout << maxbright << std::endl;
             if (maxbright >= draw_threshold) {
                 drawing = true;
                 draw_x.push_back(cloud->points[maxbright_idx].x);
