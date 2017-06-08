@@ -10,7 +10,10 @@ GRASS GIS module for importing data from Microsoft Kinect v2 into a GRASS GIS ra
 ## Installation
 Supported platforms include Ubuntu Linux and Mac OS X. Running r.in.kinect on any other platforms is possible but not tested.
 
-Please follow official installation guides of dependencies. First test libfreenect2's Protonect binary before you proceed with other steps. Here are notes specific to Ubuntu and Mac OS X.
+For Ubuntu 16.04, you can use [install.sh script](https://raw.githubusercontent.com/tangible-landscape/grass-tangible-landscape/master/install.sh)
+ to install all dependencies and r.in.kinect.
+
+Otherwise, please follow official installation guides of dependencies. First test libfreenect2's Protonect binary before you proceed with other steps. Here are notes specific to Ubuntu and Mac OS X.
 
 ### Ubuntu 16.04
 Installation was tested on older Ubuntu 15.10 and 14.04, but 16.04 is easier to setup because new versions of libraries are already there.
