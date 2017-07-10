@@ -857,6 +857,8 @@ int main(int argc, char **argv)
             cellhd.south = window.south;
             cellhd.east = window.east;
             cellhd.west = window.west;
+            cellhd.ns_res = window.ns_res;
+            cellhd.ew_res = window.ew_res;
             if (routput)
                 Rast_put_cellhd(routput, &cellhd);
             if (color_output) {
