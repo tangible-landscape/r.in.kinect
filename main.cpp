@@ -803,13 +803,16 @@ int main(int argc, char **argv)
         // write to vector
         if (voutput|| (routput && strcmp(method, "interpolation") == 0)) {
             double z;
+            int random = std::rand();
+            char tmp_name[50];
+            sprintf(tmp_name, "%s_%d", routput, random);
             if (voutput) {
                 if (Vect_open_new(&Map, voutput, WITH_Z) < 0)
                     G_fatal_error(_("Unable to create temporary vector map <%s>"), voutput);
             }
             else {
-                if (Vect_open_tmp_new(&Map, routput, WITH_Z) < 0)
-                    G_fatal_error(_("Unable to create temporary vector map <%s>"), routput);
+                if (Vect_open_tmp_new(&Map, tmp_name, WITH_Z) < 0)
+                    G_fatal_error(_("Unable to create temporary vector map <%s>"), tmp_name);
             }
             for (int i=0; i < cloud->points.size(); i++) {
                 Vect_reset_line(Points);
