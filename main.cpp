@@ -388,7 +388,7 @@ int main(int argc, char **argv)
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
             *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
             *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt;
-    struct Flag *loop_flag, *calib_flag, *equalize_flag;
+    struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag;
     struct Map_info Map;
     struct line_pnts *Points;
     struct line_cats *Cats;
@@ -546,8 +546,13 @@ int main(int argc, char **argv)
 
     calib_flag = G_define_flag();
     calib_flag->key = 'c';
-    calib_flag->description = _("Calibrate");
+    calib_flag->description = _("Calibrate sensor tilting and distance from table");
     calib_flag->guisection = _("Calibration");
+
+    calib_model_flag = G_define_flag();
+    calib_model_flag->key = 'm';
+    calib_model_flag->description = _("Calibrate model position");
+    calib_model_flag->guisection = _("Calibration");
 
     draw_opt = G_define_option();
     draw_opt->key = "draw";
@@ -571,7 +576,8 @@ int main(int argc, char **argv)
     draw_vector_opt->guisection = _("Drawing");
     draw_vector_opt->required = NO;
 
-    G_option_required(calib_flag, routput_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
+    G_option_required(calib_flag, calib_model_flag, routput_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
+    G_option_exclusive(calib_flag, calib_model_flag, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
     G_option_requires(color_output_opt, resolution_opt, NULL);
     G_option_requires(contours_map, contours_step_opt, routput_opt, NULL);
@@ -766,6 +772,12 @@ int main(int argc, char **argv)
         sor.setStddevMulThresh(0.5);
         sor.filter(*cloud_filtered_pass);
         cloud_filtered_pass.swap (cloud);
+
+        if(calib_model_flag->answer) {
+            calibrate_bbox(cloud);
+            j++;
+            continue;
+        }
 
         if (trim_tolerance_opt->answer != NULL) {
             double autoclip_N, autoclip_S, autoclip_E, autoclip_W;

@@ -1,5 +1,9 @@
 #ifndef CALIBRATE_H
 #define CALIBRATE_H
+
+#include <pcl/segmentation/extract_clusters.h>
+
+
 inline double getAngle(const Eigen::Vector3f &v1, const Eigen::Vector3f &v2, const bool in_degree)
 {
     // Compute the actual angle
@@ -37,7 +41,7 @@ void calibrate(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
             coefficients->values[1],
             coefficients->values[2]);
     Eigen::Vector3f plane(0, 0, 1);
-    G_important_message(_("Deviation: %f degrees"), getAngle(scan_plane, plane, TRUE));
+    std::cout << "angle_deviation=" << getAngle(scan_plane, plane, TRUE) << std::endl;
     Eigen::Vector3f cross = scan_plane.cross(plane).normalized();
     Eigen::Matrix3f u2 = Eigen::Matrix3f::Zero();
     u2(0, 1) = -cross[2];
@@ -56,19 +60,43 @@ void calibrate(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
         }
     }
     std::cout << std::endl;
+    /* estimate height above table */
+    float zmean = 0;
+    for (size_t i = 0; i < inliers->indices.size(); ++i) {
+        zmean += cloud->points[inliers->indices[i]].z;
+    }
+    zmean /= inliers->indices.size();
+    std::cout << "height=" << -zmean << std::endl;
 
-    // For testing only
-    /*
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_stat (new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
-    // Create the filtering object
-    pcl::ExtractIndices<pcl::PointXYZRGB> extract;
-    // Extract the inliers
-    extract.setInputCloud(cloud);
-    extract.setIndices(inliers);
-    extract.setNegative(false);
-    extract.filter (*cloud_filtered_stat);
-    cloud_filtered_stat.swap (cloud);
-    */
+
+}
+
+template<typename PointT>
+void calibrate_bbox(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
+    typename pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
+    tree->setInputCloud (cloud);
+
+    std::vector<pcl::PointIndices> cluster_indices;
+    pcl::EuclideanClusterExtraction<PointT> ec;
+    ec.setClusterTolerance(0.02); // 2cm
+    ec.setMinClusterSize(5000);
+    ec.setMaxClusterSize(500000);
+    ec.setSearchMethod(tree);
+    ec.setInputCloud(cloud);
+    ec.extract(cluster_indices);
+
+    if (cluster_indices.empty()) {
+        G_warning("Could not find any clusters.");
+        return;
+    }
+    /* assume first and largest cluster is the model and extract bbox */
+    int i = 0;
+    typename pcl::PointCloud<PointT>::Ptr cloud_cluster (new pcl::PointCloud<PointT>);
+    for (std::vector<int>::const_iterator pit = cluster_indices[i].indices.begin (); pit != cluster_indices[i].indices.end (); ++pit)
+              cloud_cluster->points.push_back (cloud->points[*pit]); //*
+    PointT minp, maxp;
+    pcl::getMinMax3D (*cloud_cluster, minp, maxp);
+    std::cout << "bbox=" << 100*maxp.y << "," << 100*minp.y << "," << 100*maxp.x << "," << 100*minp.x << std::endl;
 }
 
 Eigen::Matrix4f read_matrix(struct Option *calib_matrix_opt) {
