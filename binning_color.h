@@ -5,10 +5,57 @@ extern "C" {
 #include <grass/gis.h>
 #include <grass/raster.h>
 #include <grass/vector.h>
+#include <grass/imagery.h>
 #include <grass/glocale.h>
 }
 #include "binning.h"
 
+
+static int add_or_update_group(char group[INAME_LEN], char **rasters, int k)
+{
+    int m, n, skip;
+    struct Ref ref;
+    struct Ref ref2;
+    const char *mapset;
+
+    I_get_group_ref(group, &ref);
+    I_get_subgroup_ref(group, group, &ref2);
+
+    for (m = 0; m < k; m++) {
+        skip = 0;
+        if (!rasters[m]) {
+            return 0;
+        }
+        if ((mapset = G_find_raster(rasters[m], "")) == NULL) {
+            skip = 1;
+            continue;
+        }
+
+        /* Go through existing files to check for duplicates */
+        for (n = 0; n < ref.nfiles; n++) {
+            if (strcmp(rasters[m], ref.file[n].name) == 0) {
+                skip = 1;
+                continue;
+            }
+        }
+        /* Go through existing files to check for duplicates */
+        for (n = 0; n < ref2.nfiles; n++) {
+            if (strcmp(rasters[m], ref2.file[n].name) == 0) {
+                skip = 1;
+                continue;
+            }
+        }
+        if (skip == 0) {
+            I_add_file_to_group_ref(rasters[m], mapset, &ref);
+            I_add_file_to_group_ref(rasters[m], mapset, &ref2);
+        }
+    }
+
+    I_put_group_ref(group, &ref);
+    I_put_subgroup_ref(group, group, &ref2);
+
+    return 0;
+}
 
 char *get_color_name(const char* basename, const char* color) {
 
@@ -189,6 +236,14 @@ inline void binning_color(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
     Rast_get_range_min_max(&range, &zmin, &zmax);
     Rast_make_colors(&colors, "grey", zmin, zmax);
     Rast_write_colors(output_b, mapset, &colors);
+
+    /* add group */
+    char *rasters[3];
+    rasters[0] = output_r;
+    rasters[1] = output_g;
+    rasters[2] = output_b;
+
+    add_or_update_group(output, rasters, 3);
 
     G_free(output_r);
     G_free(output_g);
