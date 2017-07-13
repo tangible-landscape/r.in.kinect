@@ -13,10 +13,23 @@ inline
 int contours(const char *map, const char *output, float step)
 {
     char buf[1024];
-    const char *argv[8];
+    const char *argv[8], *argv2[8];
     int argc = 0;
+    int argc2 = 0;
 
+    /* first set computational region */
+    argv2[argc2++] = "g.region";
+    argv2[argc2++] = "-u";
+    sprintf(buf, "raster=%s", map);
+    argv2[argc2++] = G_store(buf);
+    argv2[argc2++] = "save=contours_region";
+    argv2[argc2++] = "--o";
+    argv2[argc2++] = NULL;
+    G_vspawn_ex(argv2[0], argv2);
 
+    putenv("WIND_OVERRIDE=contours_region");
+
+    /* then run contours */
     argv[argc++] = "r.contour";
     argv[argc++] = "-t";
     argv[argc++] = "--o";
