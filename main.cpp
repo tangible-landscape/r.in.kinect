@@ -883,7 +883,7 @@ int main(int argc, char **argv)
             }
             set_default_color(routput);
             if (contours_output) {
-                contours(routput, contours_output, atof(contours_step_opt->answer));
+                contours(routput, contours_output, contours_step);
             }
             if (use_equalized) {
                 equalized(routput);
