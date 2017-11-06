@@ -1,4 +1,7 @@
 #include <unistd.h>
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 extern "C" {
 #include <grass/gis.h>
 #include <grass/raster.h>
@@ -35,7 +38,7 @@ int deallocate(struct multtree *tree)
 
 void interpolate(struct Map_info *Map, char* output, double tension,
                  double smoothing, int npmin, int segmax, double dmin,
-                 struct bound_box *bbox, double resolution){
+                 struct bound_box *bbox, double resolution, int threads){
 
     struct interp_params params;
     struct Cell_head cellhd;
@@ -48,7 +51,6 @@ void interpolate(struct Map_info *Map, char* output, double tension,
     cellhd.ns_res = resolution;
     cellhd.ew_res = resolution;
     G_adjust_Cell_head(&cellhd, 0, 0);
-
 
     double ew_res = cellhd.ew_res;
     double ns_res = cellhd.ns_res;
@@ -69,7 +71,9 @@ void interpolate(struct Map_info *Map, char* output, double tension,
     dmax = dmin * 5;
     dmin = dmin * dmin;
 
-
+#if defined(_OPENMP)
+    omp_set_num_threads(threads);
+#endif
     double *az = NULL;
 
     az = G_alloc_vector(n_cols + 1);
@@ -163,10 +167,17 @@ void interpolate(struct Map_info *Map, char* output, double tension,
     deltx = xmax - xmin;
     delty = ymax - ymin;
     double dnorm =  sqrt((deltx * delty * npmin) / npoint);
+#if defined(_OPENMP)
+    IL_interp_segments_2d_parallel(&params, info, info->root, NULL,
+                          zmin, zmax, &zminac, &zmaxac, &gmin, &gmax,
+                          &c1min, &c1max, &c2min, &c2max, &ertot, totsegm,
+                          n_cols, dnorm, threads);
+#else
     IL_interp_segments_2d(&params, info, info->root, NULL,
                           zmin, zmax, &zminac, &zmaxac, &gmin, &gmax,
                           &c1min, &c1max, &c2min, &c2max, &ertot, totsegm,
                           n_cols, dnorm);
+#endif
     G_free_vector(az);
     IL_output_2d(&params, &cellhd, zmin, zmax, zminac, zmaxac, c1min,
                  c1max, c2min, c2max, gmin, gmax, ertot, output, dnorm,

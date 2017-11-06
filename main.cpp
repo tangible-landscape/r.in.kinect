@@ -387,7 +387,7 @@ int main(int argc, char **argv)
     struct Option *voutput_opt, *routput_opt, *color_output_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
             *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
-            *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt;
+            *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp;
     struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -510,6 +510,13 @@ int main(int argc, char **argv)
     method_opt->answer = "mean";
     method_opt->description = _("Surface reconstruction method");
 
+    nprocs_interp = G_define_option();
+    nprocs_interp->key = "nprocs_interpolation";
+    nprocs_interp->multiple = NO;
+    nprocs_interp->type = TYPE_INTEGER;
+    nprocs_interp->answer = "1";
+    nprocs_interp->description = _("Number of processes for parallel interpolation");
+
     calib_matrix_opt = G_define_option();
     calib_matrix_opt->key = "calib_matrix";
     calib_matrix_opt->multiple = YES;
@@ -522,7 +529,7 @@ int main(int argc, char **argv)
     numscan_opt->answer = "1";
     numscan_opt->key = "numscan";
     numscan_opt->type = TYPE_INTEGER;
-    numscan_opt->description = _("Number of scans to intergrate");
+    numscan_opt->description = _("Number of scans to integrate");
     numscan_opt->required = NO;
 
     contours_map = G_define_standard_option(G_OPT_V_MAP);
@@ -623,6 +630,15 @@ int main(int argc, char **argv)
         transform_matrix = read_matrix(calib_matrix_opt);
     }
     char *method = method_opt->answer;
+    int threads;
+    sscanf(nprocs_interp->answer, "%d", &threads);
+    if (threads < 1)
+    {
+      G_warning(_("<%d> is not valid number of threads. Number of threads will be set on <%d>"),
+      threads, abs(threads));
+      threads = abs(threads);
+    }
+
     int numscan = atoi(numscan_opt->answer);
     char *color_output = color_output_opt->answer;
     char *voutput = voutput_opt->answer;
@@ -843,7 +859,7 @@ int main(int argc, char **argv)
                 // interpolate
                 Vect_rewind(&Map);
                 interpolate(&Map, routput, 20, 2, 50, 40, -1,
-                            &bbox, resolution);
+                            &bbox, resolution, threads);
             }
             Vect_close(&Map);
         }
