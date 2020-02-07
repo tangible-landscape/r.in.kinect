@@ -406,7 +406,8 @@ int main(int argc, char **argv)
     struct Option *voutput_opt, *routput_opt, *color_output_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt, *color_resolution_opt,
             *color_camera_resolution_opt, *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
-            *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp;
+            *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp,
+            *signal_file;
     struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag, *sensor_info_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -619,6 +620,11 @@ int main(int argc, char **argv)
     draw_vector_opt->key = "draw_output";
     draw_vector_opt->guisection = _("Drawing");
     draw_vector_opt->required = NO;
+
+    signal_file = G_define_standard_option(G_OPT_F_OUTPUT);
+    signal_file->key = "signal_file";
+    signal_file->required = NO;
+    signal_file->description = _("File signaling scanning cycle is done");
 
     sensor_info_flag = G_define_flag();
     sensor_info_flag->key = 'i';
@@ -984,7 +990,10 @@ int main(int argc, char **argv)
             }
             writer.write<pcl::PointXYZRGB>(ply, *cloud, true, true);
         }
-
+        if (signal_file->answer) {
+            FILE *fp = fopen(signal_file->answer, "w");
+            fclose(fp);
+        }
         if (!loop_flag->answer)
             j++;
     }
