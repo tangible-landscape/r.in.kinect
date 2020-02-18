@@ -26,7 +26,7 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/io/ply_io.h>
 
-#include "k2g.h"
+#include "k4adriver.h"
 #include "binning.h"
 #include "binning_color.h"
 #include "calibrate.h"
@@ -674,8 +674,8 @@ int main(int argc, char **argv)
     Points = Vect_new_line_struct();
     Cats = Vect_new_cats_struct();
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_pass (new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
+    //pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(640, 576));
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_pass (new pcl::PointCloud<pcl::PointXYZRGB>(640, 576));
 
     struct bound_box bbox;
     struct Cell_head cellhd, window;
@@ -686,10 +686,9 @@ int main(int argc, char **argv)
     bool resume_once = false;
 
     update_input_region(raster_opt->answer, region_opt->answer, window, offset, region3D);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
 
-
-    K2G k2g(OPENGL);
-    k2g.getCloud();
+    K4ADriver k4a(K4A_DEPTH_MODE_NFOV_UNBINNED, K4A_COLOR_RESOLUTION_720P);
     cloud->sensor_orientation_.w() = 0.0;
     cloud->sensor_orientation_.x() = 1.0;
     cloud->sensor_orientation_.y() = 0.0;
@@ -713,7 +712,15 @@ int main(int argc, char **argv)
                            vect_type, draw_threshold, draw_output, paused, resume_once);
         }
 
-        cloud = k2g.getCloud();
+        try {
+            cloud = k4a.get_cloud();
+        }
+        catch (std::runtime_error& e) {
+            G_warning(e.what());
+            continue;
+        }
+        k4a.shut_down();
+        G_fatal_error("");
         if (paused) {
             if (!resume_once)
                 continue;
@@ -721,8 +728,8 @@ int main(int argc, char **argv)
                 resume_once = false;
         }
         if (!drawing) {
-            for (int s = 0; s < numscan - 1; s++)
-                *(cloud) += *(k2g.getCloud());
+            for (int s = 0; s < numscan - 1; s++){}
+                //*(cloud) += *(k2g.getCloud());
         }
 
         // remove invalid points
@@ -924,7 +931,7 @@ int main(int argc, char **argv)
             j++;
     }
 
-    k2g.shutDown();
+    //k2g.shutDown();
 
     return EXIT_SUCCESS;
 }
