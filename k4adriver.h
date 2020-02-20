@@ -72,14 +72,11 @@ public:
         unsigned width = k4a_image_get_width_pixels(point_cloud_image);
         unsigned height = k4a_image_get_height_pixels(point_cloud_image);
         G_warning("width %d height %d", width, height);
-        release();
-        
-        if (!cloud)
-            pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(width, height));
-        
-        pcl::PointXYZRGB * itP = cloud->points[0];
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(width, height));
+        pcl::PointXYZRGB * itP = &cloud->points[0];
         bool is_dense = true;
-        for (int i = 0; i < width * height; i++) {
+        for (int i = 0; i < width * height; ++i, ++itP) {
             if (point_cloud_data[3 * i + 0] == 0 ||
                     point_cloud_data[3 * i + 1] == 0 ||
                     point_cloud_data[3 * i + 2] == 0) {
@@ -88,28 +85,26 @@ public:
                 itP->z = qnan_;
                 is_dense = false;
             } else {
-                itP->x = point_cloud_data[3 * i + 0] / 1000.;
-                itP->y = -point_cloud_data[3 * i + 1] / 1000.;
+                itP->x = -point_cloud_data[3 * i + 0] / 1000.;
+                itP->y = point_cloud_data[3 * i + 1] / 1000.;
                 itP->z = -point_cloud_data[3 * i + 2] / 1000.;
             }
             itP->b = 0;
             itP->g = 0;
             itP->r = 0;
-            cloud->is_dense = is_dense;
-            return cloud;
-            
-            //printf("bbox %d %f \n", point_cloud_data[3 * i + 0] / 1000, point_cloud_data_mm[i].xyz.x);
-            //fflush(stdout);
         }
+        cloud->is_dense = is_dense;
+        release();
+        return cloud;
     }
     void release()
     {
-        if (capture)
-            k4a_capture_release(capture);
         if (depth_image)
             k4a_image_release(depth_image);
         if (point_cloud_image)
             k4a_image_release(point_cloud_image);
+        if (capture)
+            k4a_capture_release(capture);
     }
     void shut_down()
     {

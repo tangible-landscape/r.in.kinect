@@ -9,6 +9,8 @@ extern "C" {
 #include <grass/glocale.h>
 }
 
+#include <stdlib.h>
+
 inline
 int contours(const char *map, const char *output, float step)
 {
@@ -26,8 +28,7 @@ int contours(const char *map, const char *output, float step)
     argv2[argc2++] = "--o";
     argv2[argc2++] = NULL;
     G_vspawn_ex(argv2[0], argv2);
-
-    putenv("WIND_OVERRIDE=contours_region");
+    setenv("WIND_OVERRIDE", "contours_region", 1);
 
     /* then run contours */
     argv[argc++] = "r.contour";

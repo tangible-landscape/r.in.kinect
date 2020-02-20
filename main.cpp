@@ -223,63 +223,54 @@ getMinMax(const pcl::PointCloud< PointT > &cloud, struct bound_box &bbox) {
 template<typename PointT>
 inline void clipNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double clip_N, double clip_S, double  clip_E, double clip_W) {
 
-    typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
     pcl::PassThrough<PointT> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("x");
     pass.setFilterLimits(-clip_W, clip_E);
-    pass.filter (*cloud_filtered_pass);
-    cloud_filtered_pass.swap (cloud);
+    pass.filter (*cloud);
 
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("y");
     pass.setFilterLimits(-clip_S, clip_N);
-    pass.filter (*cloud_filtered_pass);
-    cloud_filtered_pass.swap (cloud);
+    pass.filter (*cloud);
 }
 
 template<typename PointT>
 inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double trim_N, double trim_S, double  trim_E, double trim_W) {
 
     struct bound_box bbox;
-    typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
     getMinMax(*cloud, bbox);
     pcl::PassThrough<PointT> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("x");
     pass.setFilterLimits(bbox.W + trim_W, bbox.E - trim_E);
-    pass.filter (*cloud_filtered_pass);
-    cloud_filtered_pass.swap (cloud);
+    pass.filter (*cloud);
 
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("y");
     pass.setFilterLimits(bbox.S + trim_S, bbox.N - trim_N);
-    pass.filter (*cloud_filtered_pass);
-    cloud_filtered_pass.swap (cloud);
+    pass.filter (*cloud);
 }
 
 template<typename PointT>
 inline void rotate_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double angle) {
 
     Eigen::Affine3f transform_Z = Eigen::Affine3f::Identity();
-    // The same rotation matrix as before; tetha radians arround Z axis
+    // The same rotation matrix as before; tetha radians around Z axis
     transform_Z.rotate (Eigen::AngleAxisf (angle, Eigen::Vector3f::UnitZ()));
 
     // Executing the transformation
-    typename pcl::PointCloud<PointT>::Ptr transformed_cloud (new pcl::PointCloud<PointT>(512, 424));
-    pcl::transformPointCloud (*cloud, *transformed_cloud, transform_Z);
-    transformed_cloud.swap (cloud);
+    pcl::transformPointCloud (*cloud, *cloud, transform_Z);
 }
 
 template<typename PointT>
-inline void trim_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double zrange_min, double zrange_max) {
-    typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
+inline void trim_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
+                   double zrange_min, double zrange_max) {
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
     pass.setFilterLimits(-zrange_max, -zrange_min);
-    pass.filter (*cloud_filtered_pass);
-    cloud_filtered_pass.swap (cloud);
+    pass.filter(*cloud);
 
 }
 
@@ -290,7 +281,7 @@ inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double rad
     typename pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
 
     // Output has the PointNormal type in order to store the normals calculated by MLS
-    boost::shared_ptr<pcl::PointCloud<PointT>> mls_points (new pcl::PointCloud<PointT>(512, 424));
+    boost::shared_ptr<pcl::PointCloud<PointT>> mls_points (new pcl::PointCloud<PointT>());
 
     // Init object (second point type is for the normals, even if unused)
     pcl::MovingLeastSquares<PointT, PointT> mls;
@@ -299,7 +290,7 @@ inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double rad
 
     // Set parameters
     mls.setInputCloud (cloud);
-    mls.setPolynomialFit (false);
+    mls.setPolynomialOrder (0);
     mls.setSearchMethod (tree);
     mls.setSearchRadius (radius);
 
@@ -411,7 +402,7 @@ int main(int argc, char **argv)
     resolution_opt->key = "resolution";
     resolution_opt->type = TYPE_DOUBLE;
     resolution_opt->required = NO;
-    resolution_opt->answer = "0.002";
+    resolution_opt->answer = const_cast<char*>("0.002");
     resolution_opt->label = _("Raster resolution");
     resolution_opt->description = _("Recommended values between 0.001-0.003");
     resolution_opt->guisection = _("Output");
@@ -464,7 +455,7 @@ int main(int argc, char **argv)
     rotate_Z_opt->key = "rotate";
     rotate_Z_opt->type = TYPE_DOUBLE;
     rotate_Z_opt->required = NO;
-    rotate_Z_opt->answer = "0";
+    rotate_Z_opt->answer = const_cast<char*>("0");
     rotate_Z_opt->description = _("Rotate along Z axis");
     rotate_Z_opt->guisection = _("Georeferencing");
 
@@ -497,7 +488,7 @@ int main(int argc, char **argv)
     zexag_opt->type = TYPE_DOUBLE;
     zexag_opt->required = NO;
     zexag_opt->required = NO;
-    zexag_opt->answer = "1";
+    zexag_opt->answer = const_cast<char*>("1");
     zexag_opt->description = _("Vertical exaggeration");
     zexag_opt->guisection = _("Georeferencing");
 
@@ -507,14 +498,14 @@ int main(int argc, char **argv)
     method_opt->required = NO;
     method_opt->type = TYPE_STRING;
     method_opt->options = "interpolation,mean,min,max";
-    method_opt->answer = "mean";
+    method_opt->answer = const_cast<char*>("mean");
     method_opt->description = _("Surface reconstruction method");
 
     nprocs_interp = G_define_option();
     nprocs_interp->key = "nprocs_interpolation";
     nprocs_interp->multiple = NO;
     nprocs_interp->type = TYPE_INTEGER;
-    nprocs_interp->answer = "1";
+    nprocs_interp->answer = const_cast<char*>("1");
     nprocs_interp->description = _("Number of processes for parallel interpolation");
 
     calib_matrix_opt = G_define_option();
@@ -526,7 +517,7 @@ int main(int argc, char **argv)
     calib_matrix_opt->guisection = _("Calibration");
 
     numscan_opt = G_define_option();
-    numscan_opt->answer = "1";
+    numscan_opt->answer = const_cast<char*>("1");
     numscan_opt->key = "numscan";
     numscan_opt->type = TYPE_INTEGER;
     numscan_opt->description = _("Number of scans to integrate");
@@ -567,7 +558,7 @@ int main(int argc, char **argv)
     draw_opt->type = TYPE_STRING;
     draw_opt->required = NO;
     draw_opt->options = "point,line,area";
-    draw_opt->answer = "point";
+    draw_opt->answer = const_cast<char*>("point");
     draw_opt->guisection = _("Drawing");
 
     draw_threshold_opt = G_define_option();
@@ -575,7 +566,7 @@ int main(int argc, char **argv)
     draw_threshold_opt->description = _("Brightness threshold for detecting laser pointer");
     draw_threshold_opt->type = TYPE_INTEGER;
     draw_threshold_opt->required = YES;
-    draw_threshold_opt->answer = "760";
+    draw_threshold_opt->answer = const_cast<char*>("760");
     draw_threshold_opt->guisection = _("Drawing");
 
     draw_vector_opt = G_define_standard_option(G_OPT_V_OUTPUT);
@@ -674,8 +665,7 @@ int main(int argc, char **argv)
     Points = Vect_new_line_struct();
     Cats = Vect_new_cats_struct();
 
-    //pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(640, 576));
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_pass (new pcl::PointCloud<pcl::PointXYZRGB>(640, 576));
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
 
     struct bound_box bbox;
     struct Cell_head cellhd, window;
@@ -686,13 +676,9 @@ int main(int argc, char **argv)
     bool resume_once = false;
 
     update_input_region(raster_opt->answer, region_opt->answer, window, offset, region3D);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
 
     K4ADriver k4a(K4A_DEPTH_MODE_NFOV_UNBINNED, K4A_COLOR_RESOLUTION_720P);
-    cloud->sensor_orientation_.w() = 0.0;
-    cloud->sensor_orientation_.x() = 1.0;
-    cloud->sensor_orientation_.y() = 0.0;
-    cloud->sensor_orientation_.z() = 0.0;
+
     int j = 0;
     // get terminating signals
     signal(SIGTERM, terminate);
@@ -716,11 +702,9 @@ int main(int argc, char **argv)
             cloud = k4a.get_cloud();
         }
         catch (std::runtime_error& e) {
-            G_warning(e.what());
+            G_warning("%s", e.what());
             continue;
         }
-        k4a.shut_down();
-        G_fatal_error("");
         if (paused) {
             if (!resume_once)
                 continue;
@@ -728,8 +712,8 @@ int main(int argc, char **argv)
                 resume_once = false;
         }
         if (!drawing) {
-            for (int s = 0; s < numscan - 1; s++){}
-                //*(cloud) += *(k2g.getCloud());
+            for (int s = 0; s < numscan - 1; s++)
+                *(cloud) += *(k4a.get_cloud());
         }
 
         // remove invalid points
@@ -752,7 +736,6 @@ int main(int argc, char **argv)
         if (zrange_opt->answer != NULL) {
             trim_Z(cloud, zrange_min, zrange_max);
         }
-
         // rotation Z
         rotate_Z(cloud, angle);
 
@@ -788,13 +771,11 @@ int main(int argc, char **argv)
                 }
             }
         }
-
         pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
         sor.setInputCloud(cloud);
         sor.setMeanK(20);
         sor.setStddevMulThresh(0.5);
-        sor.filter(*cloud_filtered_pass);
-        cloud_filtered_pass.swap (cloud);
+        sor.filter(*cloud);
 
         if(calib_model_flag->answer) {
             calibrate_bbox(cloud);
@@ -931,7 +912,7 @@ int main(int argc, char **argv)
             j++;
     }
 
-    //k2g.shutDown();
+    k4a.shut_down();
 
     return EXIT_SUCCESS;
 }

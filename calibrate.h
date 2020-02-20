@@ -111,10 +111,8 @@ Eigen::Matrix4f read_matrix(struct Option *calib_matrix_opt) {
 
 template<typename PointT>
 inline void rotate_with_matrix(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
-                        Eigen::Matrix4f transform) {
-    typename pcl::PointCloud<PointT>::Ptr transformed_cloud (new pcl::PointCloud<PointT> (512, 424));
-    pcl::transformPointCloud (*cloud, *transformed_cloud, transform);
-    transformed_cloud.swap(cloud);
+                               Eigen::Matrix4f transform) {
+    pcl::transformPointCloud (*cloud, *cloud, transform);
 }
 
 #endif // CALIBRATE_H
