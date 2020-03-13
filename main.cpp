@@ -716,11 +716,6 @@ int main(int argc, char **argv)
                 *(cloud) += *(k4a.get_cloud());
         }
 
-        // remove invalid points
-        std::vector<int> index_nans;
-
-        pcl::removeNaNFromPointCloud(*cloud, *cloud, index_nans);
-
         // calibration
         if(calib_flag->answer) {
             calibrate(cloud);
