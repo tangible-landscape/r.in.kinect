@@ -59,6 +59,20 @@ void signal_read_new_input (int param)
     signal_new_input = 1;
 }
 
+k4a_color_resolution_t color_camera(char* resolution)
+{
+    k4a_color_resolution_t res = K4A_COLOR_RESOLUTION_OFF;
+    if (strcmp(resolution, "720P") == 0)
+        res = K4A_COLOR_RESOLUTION_720P;
+    else if (strcmp(resolution, "1080P") == 0)
+        res = K4A_COLOR_RESOLUTION_1080P;
+    else if (strcmp(resolution, "1440P") == 0)
+        res = K4A_COLOR_RESOLUTION_1440P;
+    else if (strcmp(resolution, "2160P") == 0)
+        res = K4A_COLOR_RESOLUTION_2160P;
+    return res;
+}
+
 void update_input_region(char* raster, char* region, struct Cell_head &window, double &offset, bool &region3D) {
     if (region){	/* region= */
         G_get_element_window(&window, "windows", region, "");
@@ -266,7 +280,7 @@ inline void rotate_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double a
 template<typename PointT>
 inline void trim_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                    double zrange_min, double zrange_max) {
-    pcl::PassThrough<pcl::PointXYZRGB> pass;
+    pcl::PassThrough<PointT> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
     pass.setFilterLimits(-zrange_max, -zrange_min);
@@ -376,8 +390,8 @@ int main(int argc, char **argv)
 {
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *color_output_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
-            *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
-            *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
+            *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt, *color_resolution_opt,
+            *color_camera_resolution_opt, *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
             *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp;
     struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag;
     struct Map_info Map;
@@ -412,6 +426,24 @@ int main(int argc, char **argv)
     color_output_opt->description = _("Basename for color output");
     color_output_opt->guisection = _("Output");
     color_output_opt->required = NO;
+
+    color_resolution_opt = G_define_option();
+    color_resolution_opt->key = "color_resolution";
+    color_resolution_opt->type = TYPE_DOUBLE;
+    color_resolution_opt->required = NO;
+    color_resolution_opt->label = _("Raster resolution of color output");
+    color_resolution_opt->description = _("Recommended values between 0.001-0.003");
+    color_resolution_opt->guisection = _("Output");
+
+    color_camera_resolution_opt = G_define_option();
+    color_camera_resolution_opt->key = "color_camera_resolution";
+    color_camera_resolution_opt->type = TYPE_STRING;
+    color_camera_resolution_opt->required = NO;
+    color_camera_resolution_opt->answer = const_cast<char*>("720P");;
+    color_camera_resolution_opt->options = "720P,1080P,1440P,2160P";
+    color_camera_resolution_opt->label = _("Resolution of color camera");
+    color_camera_resolution_opt->description = _("Color sensor resolution");
+    color_camera_resolution_opt->guisection = _("Output");
 
     voutput_opt = G_define_standard_option(G_OPT_V_OUTPUT);
     voutput_opt->required = NO;
@@ -574,10 +606,11 @@ int main(int argc, char **argv)
     draw_vector_opt->guisection = _("Drawing");
     draw_vector_opt->required = NO;
 
-    G_option_required(calib_flag, calib_model_flag, routput_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
+    G_option_required(calib_flag, calib_model_flag, routput_opt,
+                      color_output_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
     G_option_exclusive(calib_flag, calib_model_flag, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
-    G_option_requires(color_output_opt, resolution_opt, NULL);
+    G_option_requires(color_output_opt, resolution_opt, color_resolution_opt, NULL);
     G_option_requires(contours_map, contours_step_opt, routput_opt, NULL);
     G_option_requires(equalize_flag, routput_opt, NULL);
 
@@ -632,6 +665,10 @@ int main(int argc, char **argv)
 
     int numscan = atoi(numscan_opt->answer);
     char *color_output = color_output_opt->answer;
+    double color_resolution = resolution;
+    if (color_resolution_opt->answer) {
+        color_resolution = atof(color_resolution_opt->answer);
+    }
     char *voutput = voutput_opt->answer;
     char *ply = ply_opt->answer;
     char *contours_output = contours_map->answer;
@@ -677,7 +714,7 @@ int main(int argc, char **argv)
 
     update_input_region(raster_opt->answer, region_opt->answer, window, offset, region3D);
 
-    K4ADriver k4a(K4A_DEPTH_MODE_NFOV_UNBINNED, K4A_COLOR_RESOLUTION_720P);
+    K4ADriver k4a(K4A_DEPTH_MODE_NFOV_UNBINNED, color_camera(color_camera_resolution_opt->answer));
 
     int j = 0;
     // get terminating signals
@@ -698,8 +735,15 @@ int main(int argc, char **argv)
                            vect_type, draw_threshold, draw_output, paused, resume_once);
         }
 
+        bool use_depth = false;
+        bool use_color = false;
+        if (routput || voutput || ply || calib_flag->answer || calib_model_flag->answer)
+            use_depth = true;
+        if (color_output || drawing)
+            use_color = true;
+        bool depth2color = true;
         try {
-            cloud = k4a.get_cloud();
+            cloud = k4a.get_cloud(use_color, depth2color);
         }
         catch (std::runtime_error& e) {
             G_warning("%s", e.what());
@@ -713,7 +757,7 @@ int main(int argc, char **argv)
         }
         if (!drawing) {
             for (int s = 0; s < numscan - 1; s++)
-                *(cloud) += *(k4a.get_cloud());
+                *(cloud) += *(k4a.get_cloud(use_color, depth2color));
         }
 
         // calibration
@@ -802,7 +846,7 @@ int main(int argc, char **argv)
             draw_z.clear();
             last_detected_loop_count = 1e6;
         }
-        if (voutput|| routput || ply || color_output) {
+        if (voutput|| routput || ply) {
             if (smooth_radius_opt->answer)
                 smooth(cloud, smooth_radius);
 
@@ -812,7 +856,7 @@ int main(int argc, char **argv)
                      (window.east - window.west) / (bbox.E - bbox.W)) / 2;
         }
         // write to vector
-        if (voutput|| (routput && strcmp(method, "interpolation") == 0)) {
+        if (voutput || (routput && strcmp(method, "interpolation") == 0)) {
             double z;
             int random = std::rand();
             char tmp_name[50];
@@ -870,8 +914,16 @@ int main(int argc, char **argv)
             cellhd.west = window.west;
             cellhd.ns_res = window.ns_res;
             cellhd.ew_res = window.ew_res;
-            if (routput)
+            if (routput) {
                 Rast_put_cellhd(routput, &cellhd);
+                set_default_color(routput);
+                if (contours_output) {
+                    contours(routput, contours_output, contours_step);
+                }
+                if (use_equalized) {
+                    equalized(routput);
+                }
+            }
             if (color_output) {
                 char* output_r = get_color_name(color_output, "r");
                 char* output_g = get_color_name(color_output, "g");
@@ -879,13 +931,6 @@ int main(int argc, char **argv)
                 Rast_put_cellhd(output_r, &cellhd);
                 Rast_put_cellhd(output_g, &cellhd);
                 Rast_put_cellhd(output_b, &cellhd);
-            }
-            set_default_color(routput);
-            if (contours_output) {
-                contours(routput, contours_output, contours_step);
-            }
-            if (use_equalized) {
-                equalized(routput);
             }
         }
         // write to PLY
