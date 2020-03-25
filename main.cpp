@@ -59,7 +59,7 @@ void signal_read_new_input (int param)
     signal_new_input = 1;
 }
 
-k4a_color_resolution_t color_camera(char* resolution)
+k4a_color_resolution_t color_camera(const char* resolution)
 {
     k4a_color_resolution_t res = K4A_COLOR_RESOLUTION_OFF;
     if (strcmp(resolution, "720P") == 0)
@@ -222,7 +222,7 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                 reinit_sensor = true;
                 if(strcmp(tokens[1], "depth") == 0) {
                     depth2color = false;
-                    k4a_resolution = color_camera(const_cast<char*>("720P"));
+                    k4a_resolution = color_camera("720P");
                 }
                 else {
                     depth2color = true;
@@ -730,7 +730,7 @@ int main(int argc, char **argv)
 
     bool depth2color = true;
     bool reinit_sensor = false;
-    k4a_color_resolution_t k4a_resolution = color_camera(const_cast<char*>("720P"));
+    k4a_color_resolution_t k4a_resolution = color_camera("720P");
     if (strcmp(color_camera_resolution_opt->answer, "depth") == 0)
         depth2color = false;
     else
