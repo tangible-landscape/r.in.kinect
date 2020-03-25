@@ -17,14 +17,17 @@ extern "C" {
 
 class K4ADriver {
 public:
-    K4ADriver(k4a_depth_mode_t depth_mode,
-              k4a_color_resolution_t color_resolution)
+    K4ADriver()
     {
         config.camera_fps = K4A_FRAMES_PER_SECOND_5;
-        config.depth_mode = depth_mode;
-        config.color_resolution = color_resolution;
         config.color_format = K4A_IMAGE_FORMAT_COLOR_BGRA32;
         config.synchronized_images_only = true;
+    }
+    void initialize(k4a_depth_mode_t depth_mode,
+                    k4a_color_resolution_t color_resolution)
+    {
+        config.depth_mode = depth_mode;
+        config.color_resolution = color_resolution;
         
         unsigned device_count = k4a_device_get_installed_count();
         if (device_count == 0)
@@ -130,7 +133,7 @@ public:
         }
         if (K4A_RESULT_SUCCEEDED !=
                 k4a_transformation_depth_image_to_point_cloud(transformation,
-                                                              transformed_color_image,
+                                                              depth_image,
                                                               K4A_CALIBRATION_TYPE_DEPTH,
                                                               point_cloud_image)) {
             release();

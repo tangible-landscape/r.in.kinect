@@ -107,11 +107,12 @@ void get_draw_type(char* draw_type_string, int &vect_type){
 void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                     double &clip_N, double &clip_S, double &clip_E, double &clip_W,
                     double &trim_tolerance, double &rotate, double &zexag, char* &method,
-                    int &numscan, double &smooth, double &resolution, bool &use_equalized,
+                    int &numscan, double &smooth, double &resolution, double &color_resolution, bool &use_equalized,
                     struct Cell_head &window, double &offset, bool &region3D,
                     char* &color_output, char* &voutput, char * &ply,
                     char* &contours_output, double &contours_step,
-                    int &draw_type, int &draw_threshold, char* &draw_output, bool &paused, bool &resume_once) {
+                    int &draw_type, int &draw_threshold, char* &draw_output, bool &paused, bool &resume_once,
+                    k4a_color_resolution_t& k4a_resolution, bool& depth2color, bool& reinit_sensor) {
     char buf[200];
     char **tokens;
     char **tokens2;
@@ -125,6 +126,8 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
             tokens = G_tokenize(buf, "=");
             if (strcmp(tokens[0], "resolution") == 0)
                 resolution = atof(tokens[1]);
+            else if (strcmp(tokens[0], "color_resolution") == 0)
+                color_resolution = atof(tokens[1]);
             else if (strcmp(tokens[0], "smooth_radius") == 0)
                 smooth = atof(tokens[1]);
             else if (strcmp(tokens[0], "output") == 0) {
@@ -214,6 +217,17 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
             }
             else if (strcmp(tokens[0], "resume_once") == 0) {
                 resume_once = true;
+            }
+            else if (strcmp(tokens[0], "camera_resolution") == 0) {
+                reinit_sensor = true;
+                if(strcmp(tokens[1], "depth") == 0) {
+                    depth2color = false;
+                    k4a_resolution = color_camera(const_cast<char*>("720P"));
+                }
+                else {
+                    depth2color = true;
+                    k4a_resolution = color_camera(tokens[1]);
+                }
             }
             G_free_tokens(tokens);
         }
@@ -436,13 +450,13 @@ int main(int argc, char **argv)
     color_resolution_opt->guisection = _("Output");
 
     color_camera_resolution_opt = G_define_option();
-    color_camera_resolution_opt->key = "color_camera_resolution";
+    color_camera_resolution_opt->key = "camera_resolution";
     color_camera_resolution_opt->type = TYPE_STRING;
     color_camera_resolution_opt->required = NO;
     color_camera_resolution_opt->answer = const_cast<char*>("720P");;
-    color_camera_resolution_opt->options = "720P,1080P,1440P,2160P";
+    color_camera_resolution_opt->options = "depth,720P,1080P,1440P,2160P";
     color_camera_resolution_opt->label = _("Resolution of color camera");
-    color_camera_resolution_opt->description = _("Color sensor resolution");
+    color_camera_resolution_opt->description = _("Color camera resolution");
     color_camera_resolution_opt->guisection = _("Output");
 
     voutput_opt = G_define_standard_option(G_OPT_V_OUTPUT);
@@ -714,7 +728,15 @@ int main(int argc, char **argv)
 
     update_input_region(raster_opt->answer, region_opt->answer, window, offset, region3D);
 
-    K4ADriver k4a(K4A_DEPTH_MODE_NFOV_UNBINNED, color_camera(color_camera_resolution_opt->answer));
+    bool depth2color = true;
+    bool reinit_sensor = false;
+    k4a_color_resolution_t k4a_resolution = color_camera(const_cast<char*>("720P"));
+    if (strcmp(color_camera_resolution_opt->answer, "depth") == 0)
+        depth2color = false;
+    else
+        k4a_resolution = color_camera(color_camera_resolution_opt->answer);
+    K4ADriver k4a;
+    k4a.initialize(K4A_DEPTH_MODE_NFOV_UNBINNED, k4a_resolution);
 
     int j = 0;
     // get terminating signals
@@ -728,11 +750,19 @@ int main(int argc, char **argv)
         if (signal_new_input == 1) {
             signal_new_input = 0;
             read_new_input(routput, zrange_min, zrange_max, clip_N, clip_S, clip_E, clip_W,
-                           trim_tolerance, angle, zexag, method, numscan, smooth_radius, resolution, use_equalized,
+                           trim_tolerance, angle, zexag, method, numscan, smooth_radius,
+                           resolution, color_resolution, use_equalized,
                            window, offset, region3D,
                            color_output, voutput, ply,
                            contours_output, contours_step,
-                           vect_type, draw_threshold, draw_output, paused, resume_once);
+                           vect_type, draw_threshold, draw_output, paused, resume_once,
+                           k4a_resolution, depth2color, reinit_sensor);
+            if (reinit_sensor) {
+                k4a.release();
+                k4a.shut_down();
+                k4a.initialize(K4A_DEPTH_MODE_NFOV_UNBINNED, k4a_resolution);
+                reinit_sensor = false;  
+            }
         }
 
         bool use_depth = false;
@@ -741,7 +771,6 @@ int main(int argc, char **argv)
             use_depth = true;
         if (color_output || drawing)
             use_color = true;
-        bool depth2color = true;
         try {
             cloud = k4a.get_cloud(use_color, depth2color);
         }
@@ -846,7 +875,7 @@ int main(int argc, char **argv)
             draw_z.clear();
             last_detected_loop_count = 1e6;
         }
-        if (voutput|| routput || ply) {
+        if (voutput|| routput || color_output || ply) {
             if (smooth_radius_opt->answer)
                 smooth(cloud, smooth_radius);
 
@@ -900,7 +929,7 @@ int main(int argc, char **argv)
                 Rast_get_cellhd(routput, "", &cellhd);
             }
             if (color_output) {
-                binning_color(cloud, color_output, &bbox, resolution);
+                binning_color(cloud, color_output, &bbox, color_resolution);
                 Rast_get_cellhd(get_color_name(color_output, "r"), "", &cellhd);
             }
 
