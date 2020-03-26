@@ -407,7 +407,7 @@ int main(int argc, char **argv)
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt, *color_resolution_opt,
             *color_camera_resolution_opt, *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
             *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp;
-    struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag;
+    struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag, *sensor_info_flag;
     struct Map_info Map;
     struct line_pnts *Points;
     struct line_cats *Cats;
@@ -419,8 +419,8 @@ int main(int argc, char **argv)
     G_add_keyword(_("vector"));
     G_add_keyword(_("scan"));
     G_add_keyword(_("points"));
-    module->label = _("Imports a point cloud from Kinect v2");
-    module->description = _("Imports a point cloud from Kinect v2");
+    module->label = _("Imports a point cloud from Azure Kinect");
+    module->description = _("Imports a point cloud from Azure Kinect");
 
     routput_opt = G_define_standard_option(G_OPT_R_OUTPUT);
     routput_opt->guisection = _("Output");
@@ -620,7 +620,11 @@ int main(int argc, char **argv)
     draw_vector_opt->guisection = _("Drawing");
     draw_vector_opt->required = NO;
 
-    G_option_required(calib_flag, calib_model_flag, routput_opt,
+    sensor_info_flag = G_define_flag();
+    sensor_info_flag->key = 'i';
+    sensor_info_flag->description = _("Print sensor info and exit");
+
+    G_option_required(calib_flag, calib_model_flag, routput_opt, sensor_info_flag,
                       color_output_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
     G_option_exclusive(calib_flag, calib_model_flag, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
@@ -631,6 +635,10 @@ int main(int argc, char **argv)
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
 
+    if (sensor_info_flag) {
+        fprintf(stdout, "sensor=k4a\n");
+        return EXIT_SUCCESS;
+    }
     // initailization of variables
     double resolution = 0.002;
     if (resolution_opt->answer)
