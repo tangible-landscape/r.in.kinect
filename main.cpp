@@ -389,7 +389,7 @@ int main(int argc, char **argv)
             *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
             *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp,
             *signal_file;
-    struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag;
+    struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag, *sensor_info_flag;
     struct Map_info Map;
     struct line_pnts *Points;
     struct line_cats *Cats;
@@ -589,7 +589,12 @@ int main(int argc, char **argv)
     signal_file->required = NO;
     signal_file->description = _("File signaling scanning cycle is done");
 
-    G_option_required(calib_flag, calib_model_flag, routput_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
+    sensor_info_flag = G_define_flag();
+    sensor_info_flag->key = 'i';
+    sensor_info_flag->description = _("Print sensor info and exit");
+
+    G_option_required(calib_flag, calib_model_flag, routput_opt, sensor_info_flag,
+                      voutput_opt, ply_opt, draw_vector_opt, NULL);
     G_option_exclusive(calib_flag, calib_model_flag, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
     G_option_requires(color_output_opt, resolution_opt, NULL);
@@ -599,6 +604,10 @@ int main(int argc, char **argv)
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
 
+    if (sensor_info_flag) {
+        fprintf(stdout, "sensor=k4w_v2\n");
+        return EXIT_SUCCESS;
+    }
     // initailization of variables
     double resolution = 0.002;
     if (resolution_opt->answer)
