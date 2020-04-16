@@ -604,7 +604,7 @@ int main(int argc, char **argv)
     if (G_parser(argc, argv))
         exit(EXIT_FAILURE);
 
-    if (sensor_info_flag) {
+    if (sensor_info_flag->answer) {
         fprintf(stdout, "sensor=k4w_v2\n");
         return EXIT_SUCCESS;
     }
