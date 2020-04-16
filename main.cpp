@@ -112,7 +112,7 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                     char* &color_output, char* &voutput, char * &ply,
                     char* &contours_output, double &contours_step,
                     int &draw_type, int &draw_threshold, char* &draw_output, bool &paused, bool &resume_once,
-                    k4a_color_resolution_t& k4a_resolution, bool& depth2color, bool& reinit_sensor) {
+                    k4a_color_resolution_t& k4a_resolution, bool& depth2color, char* &camera_resolution, bool& reinit_sensor) {
     char buf[200];
     char **tokens;
     char **tokens2;
@@ -219,14 +219,17 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                 resume_once = true;
             }
             else if (strcmp(tokens[0], "camera_resolution") == 0) {
-                reinit_sensor = true;
-                if(strcmp(tokens[1], "depth") == 0) {
-                    depth2color = false;
-                    k4a_resolution = color_camera("720P");
-                }
-                else {
-                    depth2color = true;
-                    k4a_resolution = color_camera(tokens[1]);
+                if (strcmp(camera_resolution, tokens[1]) != 0) {
+                    camera_resolution = tokens[1];
+                    reinit_sensor = true;
+                    if(strcmp(camera_resolution, "depth") == 0) {
+                        depth2color = false;
+                        k4a_resolution = color_camera("720P");
+                    }
+                    else {
+                        depth2color = true;
+                        k4a_resolution = color_camera(camera_resolution);
+                    }
                 }
             }
             G_free_tokens(tokens);
@@ -744,8 +747,9 @@ int main(int argc, char **argv)
 
     bool depth2color = true;
     bool reinit_sensor = false;
+    char* camera_resolution = color_camera_resolution_opt->answer;
     k4a_color_resolution_t k4a_resolution = color_camera("720P");
-    if (strcmp(color_camera_resolution_opt->answer, "depth") == 0)
+    if (strcmp(camera_resolution, "depth") == 0)
         depth2color = false;
     else
         k4a_resolution = color_camera(color_camera_resolution_opt->answer);
@@ -770,9 +774,8 @@ int main(int argc, char **argv)
                            color_output, voutput, ply,
                            contours_output, contours_step,
                            vect_type, draw_threshold, draw_output, paused, resume_once,
-                           k4a_resolution, depth2color, reinit_sensor);
+                           k4a_resolution, depth2color, camera_resolution, reinit_sensor);
             if (reinit_sensor) {
-                k4a.release();
                 k4a.shut_down();
                 k4a.initialize(K4A_DEPTH_MODE_NFOV_UNBINNED, k4a_resolution);
                 reinit_sensor = false;  
@@ -785,18 +788,18 @@ int main(int argc, char **argv)
             use_depth = true;
         if (color_output || drawing)
             use_color = true;
+        if (paused) {
+            if (!resume_once)
+                continue;
+            else
+                resume_once = false;
+        }
         try {
             cloud = k4a.get_cloud(use_color, depth2color);
         }
         catch (std::runtime_error& e) {
             G_warning("%s", e.what());
             continue;
-        }
-        if (paused) {
-            if (!resume_once)
-                continue;
-            else
-                resume_once = false;
         }
         if (!drawing) {
             for (int s = 0; s < numscan - 1; s++)
@@ -889,12 +892,12 @@ int main(int argc, char **argv)
             draw_z.clear();
             last_detected_loop_count = 1e6;
         }
-        if (voutput|| routput || color_output || ply) {
+        getMinMax(*cloud, bbox);
+        if (voutput|| routput || ply) {
             if (smooth_radius_opt->answer)
                 smooth(cloud, smooth_radius);
 
             // get Z scaling
-            getMinMax(*cloud, bbox);
             scale = ((window.north - window.south) / (bbox.N - bbox.S) +
                      (window.east - window.west) / (bbox.E - bbox.W)) / 2;
         }
@@ -934,19 +937,12 @@ int main(int argc, char **argv)
             Vect_close(&Map);
         }
 
-        if (routput || color_output) {
-            if (routput) {
-                if (strcmp(method, "interpolation") != 0) {
-                    binning(cloud, routput, &bbox, resolution,
-                            scale, zexag, region3D ? -zrange_max : bbox.B, offset, method);
-                }
-                Rast_get_cellhd(routput, "", &cellhd);
+        if (routput) {
+            if (strcmp(method, "interpolation") != 0) {
+                binning(cloud, routput, &bbox, resolution,
+                        scale, zexag, region3D ? -zrange_max : bbox.B, offset, method);
             }
-            if (color_output) {
-                binning_color(cloud, color_output, &bbox, color_resolution);
-                Rast_get_cellhd(get_color_name(color_output, "r"), "", &cellhd);
-            }
-
+            Rast_get_cellhd(routput, "", &cellhd);
             // georeference horizontally
             window.rows = cellhd.rows;
             window.cols = cellhd.cols;
@@ -957,24 +953,34 @@ int main(int argc, char **argv)
             cellhd.west = window.west;
             cellhd.ns_res = window.ns_res;
             cellhd.ew_res = window.ew_res;
-            if (routput) {
-                Rast_put_cellhd(routput, &cellhd);
-                set_default_color(routput);
-                if (contours_output) {
-                    contours(routput, contours_output, contours_step);
-                }
-                if (use_equalized) {
-                    equalized(routput);
-                }
+            Rast_put_cellhd(routput, &cellhd);
+            set_default_color(routput);
+            if (contours_output) {
+                contours(routput, contours_output, contours_step);
             }
-            if (color_output) {
-                char* output_r = get_color_name(color_output, "r");
-                char* output_g = get_color_name(color_output, "g");
-                char* output_b = get_color_name(color_output, "b");
-                Rast_put_cellhd(output_r, &cellhd);
-                Rast_put_cellhd(output_g, &cellhd);
-                Rast_put_cellhd(output_b, &cellhd);
+            if (use_equalized) {
+                equalized(routput);
             }
+        }
+        if (color_output) {
+            binning_color(cloud, color_output, &bbox, color_resolution);
+            char* output_r = get_color_name(color_output, "r");
+            char* output_g = get_color_name(color_output, "g");
+            char* output_b = get_color_name(color_output, "b");
+            Rast_get_cellhd(output_r, "", &cellhd);
+            // georeference horizontally
+            window.rows = cellhd.rows;
+            window.cols = cellhd.cols;
+            G_adjust_Cell_head(&window, 1, 1);
+            cellhd.north = window.north;
+            cellhd.south = window.south;
+            cellhd.east = window.east;
+            cellhd.west = window.west;
+            cellhd.ns_res = window.ns_res;
+            cellhd.ew_res = window.ew_res;
+            Rast_put_cellhd(output_r, &cellhd);
+            Rast_put_cellhd(output_g, &cellhd);
+            Rast_put_cellhd(output_b, &cellhd);
         }
         // write to PLY
         if (ply) {
