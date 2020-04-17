@@ -1,5 +1,5 @@
 # r.in.kinect
-GRASS GIS module for importing data from Microsoft Kinect v2 into a GRASS GIS raster or vector map.
+GRASS GIS module for importing data from Kinect for Xbox One (Microsoft Kinect v2) into a GRASS GIS raster or vector map.
 
 ## Dependencies
  * [libfreenect2](https://github.com/OpenKinect/libfreenect2)
