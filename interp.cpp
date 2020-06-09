@@ -167,6 +167,11 @@ void interpolate(struct Map_info *Map, char* output, double tension,
     deltx = xmax - xmin;
     delty = ymax - ymin;
     double dnorm =  sqrt((deltx * delty * npmin) / npoint);
+    /* this needs to be defined, otherwise
+     * it is uninitialized after openmp loop
+     * and causes segfaults
+     */
+    ertot = 0;
 #if defined(_OPENMP)
     IL_interp_segments_2d_parallel(&params, info, info->root, NULL,
                           zmin, zmax, &zminac, &zmaxac, &gmin, &gmax,
