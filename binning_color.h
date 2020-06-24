@@ -224,17 +224,17 @@ inline void binning_color(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
     Rast_init_colors(&colors);
     Rast_read_range(output_r, "", &range);
     Rast_get_range_min_max(&range, &zmin, &zmax);
-    Rast_make_colors(&colors, "grey", zmin, zmax);
+    Rast_make_colors(&colors, "grey255", zmin, zmax);
     Rast_write_colors(output_r, mapset, &colors);
 
     Rast_read_range(output_g, "", &range);
     Rast_get_range_min_max(&range, &zmin, &zmax);
-    Rast_make_colors(&colors, "grey", zmin, zmax);
+    Rast_make_colors(&colors, "grey255", zmin, zmax);
     Rast_write_colors(output_g, mapset, &colors);
 
     Rast_read_range(output_b, "", &range);
     Rast_get_range_min_max(&range, &zmin, &zmax);
-    Rast_make_colors(&colors, "grey", zmin, zmax);
+    Rast_make_colors(&colors, "grey255", zmin, zmax);
     Rast_write_colors(output_b, mapset, &colors);
 
     /* add group */
