@@ -757,6 +757,7 @@ int main(int argc, char **argv)
     k4a.initialize(K4A_DEPTH_MODE_NFOV_UNBINNED, k4a_resolution);
 
     int j = 0;
+    int failed = 0;
     // get terminating signals
     signal(SIGTERM, terminate);
     signal(SIGINT, terminate);
@@ -796,10 +797,18 @@ int main(int argc, char **argv)
         }
         try {
             cloud = k4a.get_cloud(use_color, depth2color);
+            failed = 0;
         }
         catch (std::runtime_error& e) {
-            G_warning("%s", e.what());
-            continue;
+            failed++;
+            if (failed > 10) {
+                k4a.shut_down();
+                G_fatal_error("%s", e.what());
+            }
+            else {
+                G_warning("%s", e.what());
+                continue;
+            }
         }
         if (!drawing) {
             for (int s = 0; s < numscan - 1; s++)
