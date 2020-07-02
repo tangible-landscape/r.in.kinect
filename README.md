@@ -3,8 +3,8 @@ GRASS GIS module for importing data from Azure Kinect DK into a GRASS GIS raster
 
 ## Dependencies
  * [Azure Kinect Sensor SDK](https://github.com/microsoft/Azure-Kinect-Sensor-SDK)
- * [PCL](http://pointclouds.org)
- * [GRASS GIS 7](https://grass.osgeo.org)
+ * [PCL 1.10 and higher](http://pointclouds.org)
+ * [GRASS GIS 7.8 and higher](https://grass.osgeo.org)
 
 ## Installation
 Supported platforms include Ubuntu Linux. Running r.in.kinect on any other platforms is possible but not tested.
