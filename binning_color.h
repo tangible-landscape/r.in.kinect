@@ -67,7 +67,7 @@ char *get_color_name(const char* basename, const char* color) {
 }
 
 template<typename PointT>
-inline void binning_color(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
+inline void binning_color(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                     char* output, struct bound_box *bbox, double resolution) {
 
     struct Cell_head cellhd;
