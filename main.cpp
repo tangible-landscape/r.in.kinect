@@ -17,12 +17,12 @@
 #include <pcl/filters/filter.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/passthrough.h>
-#include <pcl/filters/voxel_grid.h>
 #include <pcl/point_types.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/surface/mls.h>
 #include <pcl/common/transforms.h>
 #include <pcl/common/angles.h>
+#include <pcl/common/common.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/io/ply_io.h>
 
@@ -221,7 +221,7 @@ getMinMax(const pcl::PointCloud< PointT > &cloud, struct bound_box &bbox) {
 }
 
 template<typename PointT>
-inline void clipNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double clip_N, double clip_S, double  clip_E, double clip_W) {
+inline void clipNSEW(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud, double clip_N, double clip_S, double  clip_E, double clip_W) {
 
     typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
     pcl::PassThrough<PointT> pass;
@@ -239,7 +239,7 @@ inline void clipNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double c
 }
 
 template<typename PointT>
-inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double trim_N, double trim_S, double  trim_E, double trim_W) {
+inline void trimNSEW(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud, double trim_N, double trim_S, double  trim_E, double trim_W) {
 
     struct bound_box bbox;
     typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
@@ -259,7 +259,7 @@ inline void trimNSEW(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double t
 }
 
 template<typename PointT>
-inline void rotate_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double angle) {
+inline void rotate_Z(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud, double angle) {
 
     Eigen::Affine3f transform_Z = Eigen::Affine3f::Identity();
     // The same rotation matrix as before; tetha radians arround Z axis
@@ -272,7 +272,7 @@ inline void rotate_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double a
 }
 
 template<typename PointT>
-inline void trim_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double zrange_min, double zrange_max) {
+inline void trim_Z(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud, double zrange_min, double zrange_max) {
     typename pcl::PointCloud<PointT>::Ptr cloud_filtered_pass (new pcl::PointCloud<PointT>(512, 424));
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud(cloud);
@@ -284,13 +284,13 @@ inline void trim_Z(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double zra
 }
 
 template<typename PointT>
-inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double radius) {
+inline void smooth(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud, double radius) {
 
     // Create a KD-Tree
     typename pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
 
     // Output has the PointNormal type in order to store the normals calculated by MLS
-    boost::shared_ptr<pcl::PointCloud<PointT>> mls_points (new pcl::PointCloud<PointT>(512, 424));
+    pcl::shared_ptr<pcl::PointCloud<PointT>> mls_points (new pcl::PointCloud<PointT>(512, 424));
 
     // Init object (second point type is for the normals, even if unused)
     pcl::MovingLeastSquares<PointT, PointT> mls;
@@ -299,7 +299,7 @@ inline void smooth(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double rad
 
     // Set parameters
     mls.setInputCloud (cloud);
-    mls.setPolynomialFit (false);
+    mls.setPolynomialOrder (0);
     mls.setSearchMethod (tree);
     mls.setSearchRadius (radius);
 
@@ -323,7 +323,7 @@ int median(std::vector<int> &v)
 }
 
 template<typename PointT>
-void autotrim(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &clip_N, double &clip_S, double &clip_E, double &clip_W, double tolerance) {
+void autotrim(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &clip_N, double &clip_S, double &clip_E, double &clip_W, double tolerance) {
     struct bound_box bbox;
     getMinMax(*cloud, bbox);
     double resolution = 0.003;

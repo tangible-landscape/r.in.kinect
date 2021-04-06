@@ -17,7 +17,7 @@ void *get_cell_ptr(void *array, int cols, int row, int col,
 }
 
 template<typename PointT>
-inline void binning(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
+inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                     char* output, struct bound_box *bbox, double resolution,
                     double scale, double zexag, double bottom, double offset, const char *method_name) {
 
