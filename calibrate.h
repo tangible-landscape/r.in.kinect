@@ -2,6 +2,7 @@
 #define CALIBRATE_H
 
 #include <pcl/segmentation/extract_clusters.h>
+#include <pcl/common/common.h>
 
 
 inline double getAngle(const Eigen::Vector3f &v1, const Eigen::Vector3f &v2, const bool in_degree)
@@ -16,7 +17,7 @@ inline double getAngle(const Eigen::Vector3f &v1, const Eigen::Vector3f &v2, con
 }
 
 template<typename PointT>
-void calibrate(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
+void calibrate(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
     // PLANE ESTIMATION
     pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients());
     pcl::PointIndices::Ptr inliers (new pcl::PointIndices());
@@ -72,7 +73,7 @@ void calibrate(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
 }
 
 template<typename PointT>
-void calibrate_bbox(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
+void calibrate_bbox(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
     typename pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
     tree->setInputCloud (cloud);
 
@@ -110,7 +111,7 @@ Eigen::Matrix4f read_matrix(struct Option *calib_matrix_opt) {
 }
 
 template<typename PointT>
-inline void rotate_with_matrix(boost::shared_ptr<pcl::PointCloud<PointT>> &cloud,
+inline void rotate_with_matrix(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                         Eigen::Matrix4f transform) {
     typename pcl::PointCloud<PointT>::Ptr transformed_cloud (new pcl::PointCloud<PointT> (512, 424));
     pcl::transformPointCloud (*cloud, *transformed_cloud, transform);
