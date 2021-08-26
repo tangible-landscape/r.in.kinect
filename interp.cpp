@@ -11,6 +11,7 @@ extern "C" {
 #include <grass/gmath.h>
 #include <grass/qtree.h>
 #include <grass/dataquad.h>
+#include <grass/version.h>
 }
 
 int deallocate(struct multtree *tree)
@@ -140,7 +141,11 @@ void interpolate(struct Map_info *Map, char* output, double tension,
     params.Tmp_fd_xx = NULL;
     params.Tmp_fd_yy = NULL;
     params.Tmp_fd_xy = NULL;
+#if GRASS_VERSION_MAJOR > 7
+    params.create_devi = false;
+#else
     params.fddevi = NULL;
+#endif
     params.ts = NULL;
     params.slope = NULL;
     params.aspect = NULL;
