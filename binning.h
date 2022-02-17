@@ -18,26 +18,22 @@ void *get_cell_ptr(void *array, int cols, int row, int col,
                             col) * Rast_cell_size(map_type));
 }
 
-double **weights(int size, float power)
+void compute_weights(int size, float power, double **weights_array)
 {
-    double **weights = (double **)G_malloc(sizeof(double *) * (size * 2 + 1));
-    for (int i = 0; i < size * 2 + 1; i++) {
-        weights[i] = (double *)G_malloc(sizeof(double) * (size * 2 + 1));
-    }
+
     for (int i = 0; i < size * 2 + 1; i++) {
         for (int j = 0; j < size * 2 + 1; j++) {
             double dist = sqrt((i - size) * (i - size) + (j - size) * (j - size));
-            weights[i][j] = 1 / pow(dist, power);
+            weights_array[i][j] = 1 / pow(dist, power);
         }
     }
-    weights[size][size] = 1;
-    return weights;
+    weights_array[size][size] = 1;
 }
 
 void fill_idw(void *sum_array, void *n_array, void *interp_array,
-              int rows, int cols, int window_size, int method)
+              int rows, int cols, int window_size, int method, double **weights_matrix)
 {
-    double **weights_matrix = weights(window_size, 2);
+    compute_weights(window_size, 2, weights_matrix);
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
             size_t offset = (row * cols + col) * Rast_cell_size(FCELL_TYPE);
@@ -49,9 +45,10 @@ void fill_idw(void *sum_array, void *n_array, void *interp_array,
                 int count = 0;
                 double sum2 = 0;
                 int nn;
-                int w_row = 0, w_col = 0;
                 double weights_sum = 0;
+                int w_row = 0;
                 for (int rr = row - window_size; rr <= row + window_size; rr++, w_row++) {
+                    int w_col = 0;
                     for (int cc = col - window_size; cc <= col + window_size; cc++, w_col++) {
                         if (cc < 0 || rr < 0 || cc >= cols || rr >= rows)
                             continue;
@@ -74,15 +71,13 @@ void fill_idw(void *sum_array, void *n_array, void *interp_array,
             }
         }
     }
-    for (int i = 0; i < window_size * 2 + 1; i++)
-        G_free(weights_matrix[i]);
-    G_free(weights_matrix);
 }
 
 template<typename PointT>
 inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                     char* output, struct bound_box *bbox, double resolution,
-                    double scale, double zexag, double bottom, double offset, const char *method_name) {
+                    double scale, double zexag, double bottom, double offset, const char *method_name,
+                    double **weights_matrix) {
 
     struct Cell_head cellhd;
 
@@ -140,10 +135,10 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
             Rast_set_f_value(ptr_sum, z > old_sum ? z : old_sum, FCELL_TYPE);
     }
     /* fill small holes */
-    fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 1, method);
+    fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 1, method, weights_matrix);
 
     /* fill big holes */
-    fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 5, method);
+    fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 5, method, weights_matrix);
 
     /* calc stats and output */
     G_message(_("Writing to map ..."));

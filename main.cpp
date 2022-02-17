@@ -733,6 +733,14 @@ int main(int argc, char **argv)
     Points = Vect_new_line_struct();
     Cats = Vect_new_cats_struct();
 
+    // weights for binning IDW interpolation
+    // size must be max 50
+    int max_weight_size = 50;
+    double **weights = (double **)G_malloc(sizeof(double *) * max_weight_size);
+    for (int i = 0; i < max_weight_size; i++) {
+        weights[i] = (double *)G_malloc(sizeof(double) * max_weight_size);
+    }
+
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
 
     struct bound_box bbox;
@@ -949,7 +957,8 @@ int main(int argc, char **argv)
         if (routput) {
             if (strcmp(method, "interpolation") != 0) {
                 binning(cloud, routput, &bbox, resolution,
-                        scale, zexag, region3D ? -zrange_max : bbox.B, offset, method);
+                        scale, zexag, region3D ? -zrange_max : bbox.B, offset, method,
+                        weights);
             }
             Rast_get_cellhd(routput, "", &cellhd);
             // georeference horizontally
@@ -1014,6 +1023,9 @@ int main(int argc, char **argv)
     }
 
     k4a.shut_down();
+    for (int i = 0; i < max_weight_size; i++)
+        G_free(weights[i]);
+    G_free(weights);
 
     return EXIT_SUCCESS;
 }
