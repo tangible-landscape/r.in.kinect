@@ -34,7 +34,8 @@ double **weights(int size, float power)
     return weights;
 }
 
-void fill_idw(void *sum_array, void *n_array, int rows, int cols, int window_size, int method)
+void fill_idw(void *sum_array, void *n_array, void *interp_array,
+              int rows, int cols, int window_size, int method)
 {
     double **weights_matrix = weights(window_size, 2);
     for (int row = 0; row < rows; row++) {
@@ -66,10 +67,10 @@ void fill_idw(void *sum_array, void *n_array, int rows, int cols, int window_siz
                         }
                     }
                 }
-                if (count > 2) {
-                    Rast_set_c_value(G_incr_void_ptr(n_array, n_offset), 1, CELL_TYPE);
-                    Rast_set_d_value(G_incr_void_ptr(sum_array, n_offset), sum2 / weights_sum, FCELL_TYPE);
-                }
+                if (count > 2)
+                    Rast_set_d_value(G_incr_void_ptr(interp_array, offset), sum2 / weights_sum, FCELL_TYPE);
+                else
+                    Rast_set_null_value(G_incr_void_ptr(interp_array, offset), 1, FCELL_TYPE);
             }
         }
     }
@@ -111,7 +112,8 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                              Rast_cell_size(CELL_TYPE));
     void *sum_array = G_calloc((size_t) cellhd.rows * (cellhd.cols + 1),
                                Rast_cell_size(FCELL_TYPE));
-
+    void *interp_array = G_calloc((size_t) cellhd.rows * (cellhd.cols + 1),
+                                  Rast_cell_size(FCELL_TYPE));
     int arr_row, arr_col;
     double z;
     for (int i = 0; i < cloud->points.size(); i++) {
@@ -138,10 +140,10 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
             Rast_set_f_value(ptr_sum, z > old_sum ? z : old_sum, FCELL_TYPE);
     }
     /* fill small holes */
-    fill_idw(sum_array, n_array, cellhd.rows, cellhd.cols, 1, method);
+    fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 1, method);
 
     /* fill big holes */
-    fill_idw(sum_array, n_array, cellhd.rows, cellhd.cols, 5, method);
+    fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 5, method);
 
     /* calc stats and output */
     G_message(_("Writing to map ..."));
@@ -155,7 +157,11 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                 Rast_get_d_value(G_incr_void_ptr(sum_array, offset), FCELL_TYPE);
 
             if (n == 0) {
-                Rast_set_null_value(ptr, 1, FCELL_TYPE);
+                if (Rast_is_f_null_value(G_incr_void_ptr(interp_array, offset))) {
+                    Rast_set_null_value(ptr, 1, FCELL_TYPE);
+                }
+                else
+                    Rast_set_d_value(ptr, Rast_get_d_value(G_incr_void_ptr(interp_array, offset), FCELL_TYPE), FCELL_TYPE);
             }
             else {
                 if (method == 0)
@@ -173,6 +179,7 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
     /* free memory */
     G_free(n_array);
     G_free(sum_array);
+    G_free(interp_array);
     G_free(raster_row);
     /* close raster file & write history */
     Rast_close(out_fd);
