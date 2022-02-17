@@ -77,7 +77,7 @@ template<typename PointT>
 inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                     char* output, struct bound_box *bbox, double resolution,
                     double scale, double zexag, double bottom, double offset, const char *method_name,
-                    double **weights_matrix) {
+                    bool interpolate, double **weights_matrix) {
 
     struct Cell_head cellhd;
 
@@ -134,12 +134,13 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
         else
             Rast_set_f_value(ptr_sum, z > old_sum ? z : old_sum, FCELL_TYPE);
     }
-    /* fill small holes */
-    fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 1, method, weights_matrix);
+    if (interpolate) {
+        /* fill small holes */
+        fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 1, method, weights_matrix);
 
-    /* fill big holes */
-    fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 5, method, weights_matrix);
-
+        /* fill big holes */
+        fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 5, method, weights_matrix);
+    }
     /* calc stats and output */
     G_message(_("Writing to map ..."));
     for (int row = 0; row < cellhd.rows; row++) {
@@ -152,7 +153,7 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                 Rast_get_d_value(G_incr_void_ptr(sum_array, offset), FCELL_TYPE);
 
             if (n == 0) {
-                if (Rast_is_f_null_value(G_incr_void_ptr(interp_array, offset))) {
+                if (!interpolate || Rast_is_f_null_value(G_incr_void_ptr(interp_array, offset))) {
                     Rast_set_null_value(ptr, 1, FCELL_TYPE);
                 }
                 else
