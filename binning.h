@@ -138,8 +138,10 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
         /* fill small holes */
         fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 1, method, weights_matrix);
 
-        /* fill big holes */
-        fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, 5, method, weights_matrix);
+        /* fill holes of max size 3 cm */
+        int fill_size = (int) (0.015 / resolution);
+        if (fill_size)
+            fill_idw(sum_array, n_array, interp_array, cellhd.rows, cellhd.cols, fill_size, method, weights_matrix);
     }
     /* calc stats and output */
     G_message(_("Writing to map ..."));
