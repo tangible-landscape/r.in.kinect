@@ -21,6 +21,7 @@
 #include <pcl/point_types.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/surface/mls.h>
+#include <pcl/common/common.h>
 #include <pcl/common/transforms.h>
 #include <pcl/common/angles.h>
 #include <pcl/segmentation/sac_segmentation.h>
