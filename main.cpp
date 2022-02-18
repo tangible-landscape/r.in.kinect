@@ -92,7 +92,7 @@ void get_draw_type(char* draw_type_string, int &vect_type){
 // read, parse and set values of scanning variables when new input from stdin comes
 void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                     double &clip_N, double &clip_S, double &clip_E, double &clip_W,
-                    double &trim_tolerance, double &rotate, double &zexag, char* &method,
+                    double &trim_tolerance, double &rotate, double &zexag, char* &method, char* &interp_method,
                     int &numscan, double &smooth, double &resolution, bool &use_equalized,
                     struct Cell_head &window, double &offset, bool &region3D,
                     char* &color_output, char* &voutput, char * &ply,
@@ -141,6 +141,8 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                 zexag = atof(tokens[1]);
             else if (strcmp(tokens[0], "method") == 0)
                 method = G_store(tokens[1]);
+            else if (strcmp(tokens[0], "interpolation_method") == 0)
+                interp_method = G_store(tokens[1]);
             else if (strcmp(tokens[0], "numscan") == 0)
                 numscan = atoi(tokens[1]);
             else if (strcmp(tokens[0], "region") == 0)
@@ -386,7 +388,7 @@ int main(int argc, char **argv)
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *color_output_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
             *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
-            *method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
+            *method_opt, *interp_method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
             *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp,
             *signal_file;
     struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag, *sensor_info_flag;
@@ -507,9 +509,18 @@ int main(int argc, char **argv)
     method_opt->multiple = NO;
     method_opt->required = NO;
     method_opt->type = TYPE_STRING;
-    method_opt->options = "interpolation,mean,min,max";
-    method_opt->answer = "mean";
+    method_opt->options = "interpolation,mean,min,max,splines";
+    method_opt->answer = const_cast<char*>("mean");
     method_opt->description = _("Surface reconstruction method");
+
+    interp_method_opt = G_define_option();
+    interp_method_opt->key = "interpolation_method";
+    interp_method_opt->multiple = NO;
+    interp_method_opt->required = NO;
+    interp_method_opt->type = TYPE_STRING;
+    interp_method_opt->options = "idw,splines";
+    interp_method_opt->answer = const_cast<char*>("idw");
+    interp_method_opt->description = _("Surface interpolation method");
 
     nprocs_interp = G_define_option();
     nprocs_interp->key = "nprocs_interpolation";
@@ -645,6 +656,7 @@ int main(int argc, char **argv)
         transform_matrix = read_matrix(calib_matrix_opt);
     }
     char *method = method_opt->answer;
+    char *interp_method = interp_method_opt->answer;
     int threads;
     sscanf(nprocs_interp->answer, "%d", &threads);
     if (threads < 1)
@@ -692,6 +704,14 @@ int main(int argc, char **argv)
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered_pass (new pcl::PointCloud<pcl::PointXYZRGB>(512, 424));
 
+    // weights for binning IDW interpolation
+    // size must be max 50
+    int max_weight_size = 50;
+    double **weights = (double **)G_malloc(sizeof(double *) * max_weight_size);
+    for (int i = 0; i < max_weight_size; i++) {
+        weights[i] = (double *)G_malloc(sizeof(double) * max_weight_size);
+    }
+
     struct bound_box bbox;
     struct Cell_head cellhd, window;
     double offset, scale;
@@ -721,7 +741,7 @@ int main(int argc, char **argv)
         if (signal_new_input == 1) {
             signal_new_input = 0;
             read_new_input(routput, zrange_min, zrange_max, clip_N, clip_S, clip_E, clip_W,
-                           trim_tolerance, angle, zexag, method, numscan, smooth_radius, resolution, use_equalized,
+                           trim_tolerance, angle, zexag, method, interp_method, numscan, smooth_radius, resolution, use_equalized,
                            window, offset, region3D,
                            color_output, voutput, ply,
                            contours_output, contours_step,
@@ -844,7 +864,7 @@ int main(int argc, char **argv)
                      (window.east - window.west) / (bbox.E - bbox.W)) / 2;
         }
         // write to vector
-        if (voutput|| (routput && strcmp(method, "interpolation") == 0)) {
+        if (voutput || (routput && strcmp(method, "interpolation") == 0 && strcmp(interp_method, "splines") == 0)) {
             double z;
             int random = std::rand();
             char tmp_name[50];
@@ -870,7 +890,7 @@ int main(int argc, char **argv)
                 Vect_cat_set(Cats, 1, cat);
                 Vect_write_line(&Map, GV_POINT, Points, Cats);
             }
-            if (strcmp(method, "interpolation") == 0) {
+            if (strcmp(method, "interpolation") == 0 && strcmp(interp_method, "splines") == 0) {
                 // interpolate
                 Vect_rewind(&Map);
                 interpolate(&Map, routput, 20, 2, 50, 40, -1,
@@ -881,9 +901,11 @@ int main(int argc, char **argv)
 
         if (routput || color_output) {
             if (routput) {
-                if (strcmp(method, "interpolation") != 0) {
+                if (strcmp(method, "splines") != 0) {
+                    bool interpolate_idw = strcmp(method, "interpolation") == 0;
                     binning(cloud, routput, &bbox, resolution,
-                            scale, zexag, region3D ? -zrange_max : bbox.B, offset, method);
+                            scale, zexag, region3D ? -zrange_max : bbox.B, offset, method,
+                            interpolate_idw, weights);
                 }
                 Rast_get_cellhd(routput, "", &cellhd);
             }
@@ -943,6 +965,9 @@ int main(int argc, char **argv)
     }
 
     k2g.shutDown();
+    for (int i = 0; i < max_weight_size; i++)
+        G_free(weights[i]);
+    G_free(weights);
 
     return EXIT_SUCCESS;
 }
