@@ -509,7 +509,7 @@ int main(int argc, char **argv)
     method_opt->multiple = NO;
     method_opt->required = NO;
     method_opt->type = TYPE_STRING;
-    method_opt->options = "interpolation,mean,min,max,splines";
+    method_opt->options = "interpolation,mean,min,max";
     method_opt->answer = const_cast<char*>("mean");
     method_opt->description = _("Surface reconstruction method");
 
