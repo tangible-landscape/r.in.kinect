@@ -27,7 +27,7 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/io/ply_io.h>
 
-#include "k4adriver.h"
+#include "realsensedriver.h"
 #include "binning.h"
 #include "binning_color.h"
 #include "calibrate.h"
@@ -60,19 +60,6 @@ void signal_read_new_input (int param)
     signal_new_input = 1;
 }
 
-k4a_color_resolution_t color_camera(const char* resolution)
-{
-    k4a_color_resolution_t res = K4A_COLOR_RESOLUTION_OFF;
-    if (strcmp(resolution, "720P") == 0)
-        res = K4A_COLOR_RESOLUTION_720P;
-    else if (strcmp(resolution, "1080P") == 0)
-        res = K4A_COLOR_RESOLUTION_1080P;
-    else if (strcmp(resolution, "1440P") == 0)
-        res = K4A_COLOR_RESOLUTION_1440P;
-    else if (strcmp(resolution, "2160P") == 0)
-        res = K4A_COLOR_RESOLUTION_2160P;
-    return res;
-}
 
 void update_input_region(char* raster, char* region, struct Cell_head &window, double &offset, bool &region3D) {
     if (region){	/* region= */
@@ -113,7 +100,7 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                     char* &color_output, char* &voutput, char * &ply,
                     char* &contours_output, double &contours_step,
                     int &draw_type, int &draw_threshold, char* &draw_output, bool &paused, bool &resume_once,
-                    k4a_color_resolution_t& k4a_resolution, bool& depth2color, char* &camera_resolution, bool& reinit_sensor) {
+                    bool& depth2color, bool& reinit_sensor) {
     char buf[200];
     char **tokens;
     char **tokens2;
@@ -220,20 +207,6 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
             }
             else if (strcmp(tokens[0], "resume_once") == 0) {
                 resume_once = true;
-            }
-            else if (strcmp(tokens[0], "camera_resolution") == 0) {
-                if (strcmp(camera_resolution, tokens[1]) != 0) {
-                    camera_resolution = tokens[1];
-                    reinit_sensor = true;
-                    if(strcmp(camera_resolution, "depth") == 0) {
-                        depth2color = false;
-                        k4a_resolution = color_camera("720P");
-                    }
-                    else {
-                        depth2color = true;
-                        k4a_resolution = color_camera(camera_resolution);
-                    }
-                }
             }
             G_free_tokens(tokens);
         }
@@ -657,7 +630,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
 
     if (sensor_info_flag->answer) {
-        fprintf(stdout, "sensor=k4a\n");
+        fprintf(stdout, "sensor=realsense\n");
         return EXIT_SUCCESS;
     }
     // initailization of variables
@@ -768,14 +741,9 @@ int main(int argc, char **argv)
 
     bool depth2color = true;
     bool reinit_sensor = false;
-    char* camera_resolution = color_camera_resolution_opt->answer;
-    k4a_color_resolution_t k4a_resolution = color_camera("720P");
-    if (strcmp(camera_resolution, "depth") == 0)
-        depth2color = false;
-    else
-        k4a_resolution = color_camera(color_camera_resolution_opt->answer);
-    K4ADriver k4a;
-    k4a.initialize(K4A_DEPTH_MODE_NFOV_UNBINNED, k4a_resolution);
+
+    RealSenseDriver rs;
+    rs.initialize();
 
     int j = 0;
     int failed = 0;
@@ -796,12 +764,7 @@ int main(int argc, char **argv)
                            color_output, voutput, ply,
                            contours_output, contours_step,
                            vect_type, draw_threshold, draw_output, paused, resume_once,
-                           k4a_resolution, depth2color, camera_resolution, reinit_sensor);
-            if (reinit_sensor) {
-                k4a.shut_down();
-                k4a.initialize(K4A_DEPTH_MODE_NFOV_UNBINNED, k4a_resolution);
-                reinit_sensor = false;  
-            }
+                           depth2color, reinit_sensor);
         }
 
         bool use_depth = false;
@@ -817,13 +780,13 @@ int main(int argc, char **argv)
                 resume_once = false;
         }
         try {
-            cloud = k4a.get_cloud(use_color, depth2color);
+            cloud = rs.get_cloud(use_color);
             failed = 0;
         }
         catch (std::runtime_error& e) {
             failed++;
             if (failed > 10) {
-                k4a.shut_down();
+                rs.shut_down();
                 G_fatal_error("%s", e.what());
             }
             else {
@@ -833,7 +796,7 @@ int main(int argc, char **argv)
         }
         if (!drawing) {
             for (int s = 0; s < numscan - 1; s++)
-                *(cloud) += *(k4a.get_cloud(use_color, depth2color));
+                *(cloud) += *(rs.get_cloud(use_color));
         }
 
         // calibration
@@ -1036,7 +999,7 @@ int main(int argc, char **argv)
             j++;
     }
 
-    k4a.shut_down();
+    rs.shut_down();
     for (int i = 0; i < max_weight_size; i++)
         G_free(weights[i]);
     G_free(weights);
