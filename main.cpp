@@ -1,10 +1,10 @@
 /*
  ****************************************************************************
  *
- * MODULE:       v.in.kinect
+ * MODULE:       r.in.kinect
  * AUTHOR(S):    Anna Petrasova
- * PURPOSE:      Import points as vector from Kinect v2
- * COPYRIGHT:    (C) 2015 by the GRASS Development Team
+ * PURPOSE:      Import points as vector from Intel RealSense sensor
+ * COPYRIGHT:    (C) 2022 by the GRASS Development Team
  *
  *               This program is free software under the GNU General
  *               Public License (>=v2). Read the file COPYING that
@@ -95,7 +95,7 @@ void get_draw_type(char* draw_type_string, int &vect_type){
 void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                     double &clip_N, double &clip_S, double &clip_E, double &clip_W,
                     double &trim_tolerance, double &rotate, double &zexag, char* &method, char* &interp_method,
-                    int &numscan, double &smooth, double &resolution, double &color_resolution, bool &use_equalized,
+                    int &numscan, double &smooth, double &resolution, bool &use_equalized,
                     struct Cell_head &window, double &offset, bool &region3D,
                     char* &color_output, char* &voutput, char * &ply,
                     char* &contours_output, double &contours_step,
@@ -114,8 +114,6 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
             tokens = G_tokenize(buf, "=");
             if (strcmp(tokens[0], "resolution") == 0)
                 resolution = atof(tokens[1]);
-            else if (strcmp(tokens[0], "color_resolution") == 0)
-                color_resolution = atof(tokens[1]);
             else if (strcmp(tokens[0], "smooth_radius") == 0)
                 smooth = atof(tokens[1]);
             else if (strcmp(tokens[0], "output") == 0) {
@@ -383,8 +381,8 @@ int main(int argc, char **argv)
 {
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *color_output_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
-            *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt, *color_resolution_opt,
-            *color_camera_resolution_opt, *method_opt, *interp_method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
+            *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt,
+            *method_opt, *interp_method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
             *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp,
             *signal_file;
     struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag, *sensor_info_flag;
@@ -399,8 +397,8 @@ int main(int argc, char **argv)
     G_add_keyword(_("vector"));
     G_add_keyword(_("scan"));
     G_add_keyword(_("points"));
-    module->label = _("Imports a point cloud from Azure Kinect");
-    module->description = _("Imports a point cloud from Azure Kinect");
+    module->label = _("Imports a point cloud from Intel RealSense sensor");
+    module->description = _("Imports a point cloud from Intel RealSense sensor");
 
     routput_opt = G_define_standard_option(G_OPT_R_OUTPUT);
     routput_opt->guisection = _("Output");
@@ -420,24 +418,6 @@ int main(int argc, char **argv)
     color_output_opt->description = _("Basename for color output");
     color_output_opt->guisection = _("Output");
     color_output_opt->required = NO;
-
-    color_resolution_opt = G_define_option();
-    color_resolution_opt->key = "color_resolution";
-    color_resolution_opt->type = TYPE_DOUBLE;
-    color_resolution_opt->required = NO;
-    color_resolution_opt->label = _("Raster resolution of color output");
-    color_resolution_opt->description = _("Recommended values between 0.001-0.003");
-    color_resolution_opt->guisection = _("Output");
-
-    color_camera_resolution_opt = G_define_option();
-    color_camera_resolution_opt->key = "camera_resolution";
-    color_camera_resolution_opt->type = TYPE_STRING;
-    color_camera_resolution_opt->required = NO;
-    color_camera_resolution_opt->answer = const_cast<char*>("720P");;
-    color_camera_resolution_opt->options = "depth,720P,1080P,1440P,2160P";
-    color_camera_resolution_opt->label = _("Resolution of color camera");
-    color_camera_resolution_opt->description = _("Color camera resolution");
-    color_camera_resolution_opt->guisection = _("Output");
 
     voutput_opt = G_define_standard_option(G_OPT_V_OUTPUT);
     voutput_opt->required = NO;
@@ -622,7 +602,6 @@ int main(int argc, char **argv)
                       color_output_opt, voutput_opt, ply_opt, draw_vector_opt, NULL);
     G_option_exclusive(calib_flag, calib_model_flag, NULL);
     G_option_requires(routput_opt, resolution_opt, NULL);
-    G_option_requires(color_output_opt, resolution_opt, color_resolution_opt, NULL);
     G_option_requires(contours_map, contours_step_opt, routput_opt, NULL);
     G_option_requires(equalize_flag, routput_opt, NULL);
 
@@ -682,10 +661,6 @@ int main(int argc, char **argv)
 
     int numscan = atoi(numscan_opt->answer);
     char *color_output = color_output_opt->answer;
-    double color_resolution = resolution;
-    if (color_resolution_opt->answer) {
-        color_resolution = atof(color_resolution_opt->answer);
-    }
     char *voutput = voutput_opt->answer;
     char *ply = ply_opt->answer;
     char *contours_output = contours_map->answer;
@@ -759,7 +734,7 @@ int main(int argc, char **argv)
             signal_new_input = 0;
             read_new_input(routput, zrange_min, zrange_max, clip_N, clip_S, clip_E, clip_W,
                            trim_tolerance, angle, zexag, method, interp_method, numscan, smooth_radius,
-                           resolution, color_resolution, use_equalized,
+                           resolution, use_equalized,
                            window, offset, region3D,
                            color_output, voutput, ply,
                            contours_output, contours_step,
@@ -954,7 +929,7 @@ int main(int argc, char **argv)
             }
         }
         if (color_output) {
-            binning_color(cloud, color_output, &bbox, color_resolution);
+            binning_color(cloud, color_output, &bbox, resolution);
             char* output_r = get_color_name(color_output, "r");
             char* output_g = get_color_name(color_output, "g");
             char* output_b = get_color_name(color_output, "b");
