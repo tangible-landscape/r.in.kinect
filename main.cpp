@@ -767,10 +767,7 @@ int main(int argc, char **argv)
                            depth2color, reinit_sensor);
         }
 
-        bool use_depth = false;
         bool use_color = false;
-        if (routput || voutput || ply || calib_flag->answer || calib_model_flag->answer)
-            use_depth = true;
         if (color_output || drawing)
             use_color = true;
         if (paused) {
@@ -786,7 +783,6 @@ int main(int argc, char **argv)
         catch (std::runtime_error& e) {
             failed++;
             if (failed > 10) {
-                rs.shut_down();
                 G_fatal_error("%s", e.what());
             }
             else {
@@ -999,7 +995,6 @@ int main(int argc, char **argv)
             j++;
     }
 
-    rs.shut_down();
     for (int i = 0; i < max_weight_size; i++)
         G_free(weights[i]);
     G_free(weights);

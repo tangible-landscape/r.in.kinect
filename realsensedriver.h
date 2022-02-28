@@ -1,3 +1,6 @@
+/* Adapted from RealSense SDK examples:
+ * https://github.com/IntelRealSense/librealsense/blob/master/wrappers/pcl/pcl/rs-pcl.cpp
+ */
 #ifndef REALSENSEDRIVER_H
 #define REALSENSEDRIVER_H
 
@@ -16,13 +19,12 @@ extern "C" {
 #include <tuple>
 
 
+using namespace std;
+
+
 class RealSenseDriver {
 public:
-    RealSenseDriver()
-    {
-//        config.camera_fps = K4A_FRAMES_PER_SECOND_5;
-
-    }
+    RealSenseDriver(){}
     void initialize()
     {
         // Start streaming with default recommended configuration
@@ -32,27 +34,28 @@ public:
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool use_color)
     {
         // Wait for frames from the camera to settle
-       for (int i = 0; i < 30; i++) {
-           auto frames = pipe.wait_for_frames(); //Drop several frames for auto-exposure
-       }
-
+        if (use_color) {
+            for (int i = 0; i < 30; i++) {
+                auto frames = pipe.wait_for_frames(); //Drop several frames for auto-exposure
+            }
+        }
        // Capture a single frame and obtain depth + RGB values from it
        auto frames = pipe.wait_for_frames();
        auto depth = frames.get_depth_frame();
-       auto RGB = frames.get_color_frame();
+       if (use_color) {
+           auto RGB = frames.get_color_frame();
+           // Map Color texture to each point
+           pc.map_to(RGB);
+           auto points = pc.calculate(depth);
+           return create_colored_cloud(points, RGB);
+       }
+       else {
+           auto points = pc.calculate(depth);
+           return create_cloud(points);
+       }
 
-       // Map Color texture to each point
-       pc.map_to(RGB);
-
-       // Generate Point Cloud
-       auto points = pc.calculate(depth);
-       auto cloud = create_cloud(points);
-       return cloud;
     }
 
-
-    void release(){}
-    void shut_down(){}
 
 private:
     // Declare pointcloud object, for calculating pointclouds and texture mappings
@@ -85,42 +88,77 @@ private:
 
         return cloud;
     }
-//    pcl::PointCloud<pcl::PointXYZRGB>::Ptr create_cloud(k4a_image_t input_point_cloud,
-//                                                        k4a_image_t input_color_image)
-//    {
-//        int16_t *point_cloud_data = (int16_t *)(void *)k4a_image_get_buffer(input_point_cloud);
-//        unsigned width = k4a_image_get_width_pixels(input_point_cloud);
-//        unsigned height = k4a_image_get_height_pixels(input_point_cloud);
-//        uint8_t *color_image_data;
-//        if (input_color_image)
-//            color_image_data = k4a_image_get_buffer(input_color_image);
-//        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(width, height));
-//        std::size_t j = 0;
-//        for (std::size_t i = 0; i < width * height; ++i) {
-//            if (point_cloud_data[3 * i + 0] == 0 ||
-//                    point_cloud_data[3 * i + 1] == 0 ||
-//                    point_cloud_data[3 * i + 2] == 0)
-//                continue;
-//            if (input_color_image && color_image_data[4 * i + 0] == 0 &&
-//                    color_image_data[4 * i + 1] == 0 &&
-//                    color_image_data[4 * i + 2] == 0 &&
-//                    color_image_data[4 * i + 3] == 0)
-//                continue;
-//            cloud->points[j].x = -point_cloud_data[3 * i + 0] / 1000.;
-//            cloud->points[j].y = point_cloud_data[3 * i + 1] / 1000.;
-//            cloud->points[j].z = -point_cloud_data[3 * i + 2] / 1000.;
-//            cloud->points[j].b = input_color_image ? color_image_data[4 * i + 0] : 0;
-//            cloud->points[j].g = input_color_image ? color_image_data[4 * i + 1] : 0;
-//            cloud->points[j].r = input_color_image ? color_image_data[4 * i + 2] : 0;
-//            j++;
-//        }
-//        if (j != width * height)
-//            cloud->points.resize(j);
-//        cloud->height = 1;
-//        cloud->width = static_cast<std::uint32_t>(j);
-//        cloud->is_dense = true;
-//        return cloud;
-//    }
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr create_colored_cloud(const rs2::points& points, const rs2::video_frame& color){
+
+        // Object Declaration (Point Cloud)
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+        // Declare Tuple for RGB value Storage (<t0>, <t1>, <t2>)
+        std::tuple<uint8_t, uint8_t, uint8_t> RGB_Color;
+
+        //================================
+        // PCL Cloud Object Configuration
+        //================================
+        // Convert data captured from Realsense camera to Point Cloud
+        auto sp = points.get_profile().as<rs2::video_stream_profile>();
+
+        cloud->width  = static_cast<uint32_t>( sp.width()  );
+        cloud->height = static_cast<uint32_t>( sp.height() );
+        cloud->is_dense = false;
+        cloud->points.resize( points.size() );
+
+        auto Texture_Coord = points.get_texture_coordinates();
+        auto Vertex = points.get_vertices();
+
+        // Iterating through all points and setting XYZ coordinates
+        // and RGB values
+        for (int i = 0; i < points.size(); i++)
+        {
+            //===================================
+            // Mapping Depth Coordinates
+            // - Depth data stored as XYZ values
+            //===================================
+            cloud->points[i].x = Vertex[i].x;
+            cloud->points[i].y = Vertex[i].y;
+            cloud->points[i].z = Vertex[i].z;
+
+            // Obtain color texture for specific point
+            RGB_Color = RGB_Texture(color, Texture_Coord[i]);
+
+            // Mapping Color (BGR due to Camera Model)
+            cloud->points[i].r = get<2>(RGB_Color); // Reference tuple<2>
+            cloud->points[i].g = get<1>(RGB_Color); // Reference tuple<1>
+            cloud->points[i].b = get<0>(RGB_Color); // Reference tuple<0>
+
+        }
+
+       return cloud; // PCL RGB Point Cloud generated
+    }
+
+    std::tuple<int, int, int> RGB_Texture(rs2::video_frame texture, rs2::texture_coordinate Texture_XY)
+    {
+        // Get Width and Height coordinates of texture
+        int width  = texture.get_width();  // Frame width in pixels
+        int height = texture.get_height(); // Frame height in pixels
+
+        // Normals to Texture Coordinates conversion
+        int x_value = min(max(int(Texture_XY.u * width  + .5f), 0), width - 1);
+        int y_value = min(max(int(Texture_XY.v * height + .5f), 0), height - 1);
+
+        int bytes = x_value * texture.get_bytes_per_pixel();   // Get # of bytes per pixel
+        int strides = y_value * texture.get_stride_in_bytes(); // Get line width in bytes
+        int Text_Index =  (bytes + strides);
+
+        const auto New_Texture = reinterpret_cast<const uint8_t*>(texture.get_data());
+
+        // RGB components to save in tuple
+        int NT1 = New_Texture[Text_Index];
+        int NT2 = New_Texture[Text_Index + 1];
+        int NT3 = New_Texture[Text_Index + 2];
+
+        return std::tuple<int, int, int>(NT1, NT2, NT3);
+    }
 };
 
 #endif // REALSENSEDRIVER_H
