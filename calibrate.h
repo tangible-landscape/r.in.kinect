@@ -1,6 +1,8 @@
 #ifndef CALIBRATE_H
 #define CALIBRATE_H
 
+#include <math.h>
+#include <tuple>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/common/common.h>
 
@@ -90,14 +92,23 @@ void calibrate_bbox(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
         G_warning("Could not find any clusters.");
         return;
     }
-    /* assume first and largest cluster is the model and extract bbox */
-    int i = 0;
-    typename pcl::PointCloud<PointT>::Ptr cloud_cluster (new pcl::PointCloud<PointT>);
-    for (std::vector<int>::const_iterator pit = cluster_indices[i].indices.begin (); pit != cluster_indices[i].indices.end (); ++pit)
-              cloud_cluster->points.push_back (cloud->points[*pit]); //*
-    PointT minp, maxp;
-    pcl::getMinMax3D (*cloud_cluster, minp, maxp);
-    std::cout << "bbox=" << 100*maxp.y << "," << 100*minp.y << "," << 100*maxp.x << "," << 100*minp.x << std::endl;
+    /* assume cluster with less distant min/max points is the model and extract bbox */
+    double min_dist = 1e6;
+    std::tuple<PointT, PointT> closest;
+    for (const auto& cluster : cluster_indices) {
+        typename pcl::PointCloud<PointT>::Ptr cloud_cluster (new pcl::PointCloud<PointT>);
+        for (std::vector<int>::const_iterator pit = cluster.indices.begin (); pit != cluster.indices.end (); ++pit)
+                  cloud_cluster->points.push_back (cloud->points[*pit]); //*
+        PointT minp, maxp;
+        pcl::getMinMax3D (*cloud_cluster, minp, maxp);
+        double dist = fabs(maxp.y) + fabs(maxp.x) + fabs(minp.x) + fabs(minp.y);
+        if (dist < min_dist) {
+            min_dist = dist;
+            closest = std::make_tuple(maxp, minp);
+        }
+    }
+    std::cout << "bbox=" << 100 * std::get<0>(closest).y << "," << 100 * std::get<1>(closest).y <<
+                 "," << 100 * std::get<0>(closest).x << "," << 100 * std::get<1>(closest).x << std::endl;
 }
 
 Eigen::Matrix4f read_matrix(struct Option *calib_matrix_opt) {
