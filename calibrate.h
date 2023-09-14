@@ -1,6 +1,7 @@
 #ifndef CALIBRATE_H
 #define CALIBRATE_H
 
+#undef n_
 #include <math.h>
 #include <tuple>
 #include <pcl/segmentation/extract_clusters.h>
