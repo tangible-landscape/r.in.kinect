@@ -14,6 +14,13 @@ extern "C" {
 #include <iostream>
 #include <tuple>
 
+// Extra Include statements for femto-branch
+#include "libobsensor/ObSensor.hpp"
+// #include "opencv2/opencv.hpp"
+#include <fstream>
+#include "utils.hpp"
+#include <cmath>
+
 
 class K4ADriver {
 public:
