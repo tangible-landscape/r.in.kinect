@@ -5,7 +5,8 @@ extern "C" {
     #include <grass/gis.h>
     #include <grass/glocale.h>
 }
-#include <k4a/k4a.h>
+
+#include <k4a/k4a.h> // no longer necesary
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -13,14 +14,15 @@ extern "C" {
 #include <string>
 #include <iostream>
 #include <tuple>
-
-// Extra Include statements for femto-branch
-#include "libobsensor/ObSensor.hpp"
-// #include "opencv2/opencv.hpp"
 #include <fstream>
-#include "utils.hpp"
 #include <cmath>
 
+// New include statements for new Orbbec SDK
+#include "libobsensor/ObSensor.hpp"
+#include "utils.hpp"
+
+// Global Variables
+#define TIMEOUT_DURATION 100  // The timeout duration to wait for frames, in milliseconds
 
 class K4ADriver {
 public:
@@ -30,235 +32,207 @@ public:
         config.color_format = K4A_IMAGE_FORMAT_COLOR_BGRA32;
         config.synchronized_images_only = true;
     }
-    void initialize(k4a_depth_mode_t depth_mode,
-                    k4a_color_resolution_t color_resolution)
-    {
-        config.depth_mode = depth_mode;
-        config.color_resolution = color_resolution;
-        
-        unsigned device_count = k4a_device_get_installed_count();
-        if (device_count == 0)
-            G_fatal_error(_("No Kinect device found"));
-        if (K4A_RESULT_SUCCEEDED != k4a_device_open(K4A_DEVICE_DEFAULT, &device))
-            G_fatal_error(_("Failed to open Kinect device"));
-        if (K4A_RESULT_SUCCEEDED !=
-            k4a_device_get_calibration(device, config.depth_mode,
-                                       config.color_resolution, &calibration))
-            G_fatal_error(_("Failed to get calibration"));
-        transformation = k4a_transformation_create(&calibration);
-        if (K4A_RESULT_SUCCEEDED != k4a_device_start_cameras(device, &config))
-            G_fatal_error(_("Failed to start Kinect"));
+
+    /**
+     * Initialize the driver using the parameters 
+     * scanned from the Orbbec Camera's connection
+     */
+    void initialize() {
+        // Setting the logger severity to a warning default
+        ob::Context::setLoggerSeverity(OB_LOG_SEVERITY_WARN);
+
+        // Configure which streams to enable or disable for the Pipeline by creating a Config
+        config = std::make_shared<ob::Config>();
+
+        // Turn on D2C alignment, which needs to be turned on when generating RGBD point clouds
+        std::shared_ptr<ob::VideoStreamProfile> colorProfile = nullptr;
+        try {
+            // Get all stream profiles of the color camera, including stream resolution, frame rate, and frame format
+            auto colorProfiles = pipeline.getStreamProfileList(OB_SENSOR_COLOR);
+            if (colorProfiles) {
+                auto profile = colorProfiles->getProfile(OB_PROFILE_DEFAULT);
+                colorProfile = profile->as<ob::VideoStreamProfile>();
+            }
+            config->enableStream(colorProfile);
+        } catch(ob::Error &e) {
+            config->setAlignMode(ALIGN_DISABLE);
+            std::cerr << "Current device doesn't support color sensor!" << std::endl;
+        }
+
+        // Get all stream profiles of the depth camera, including stream resolution, frame rate, and frame format
+        std::shared_ptr<ob::StreamProfileList> depthProfileList;
+        OBAlignMode alignMode = ALIGN_DISABLE;
+        if (colorProfile) {
+            // Try find supported depth to color align hardware mode profile
+            depthProfileList = pipeline.getD2CDepthProfileList(colorProfile, ALIGN_D2C_HW_MODE);
+            if (depthProfileList->count() > 0) {
+                alignMode = ALIGN_D2C_HW_MODE;
+            } else {
+                // Try find supported depth to color align software mode profile
+                depthProfileList = pipeline.getD2CDepthProfileList(colorProfile, ALIGN_D2C_SW_MODE);
+                if (depthProfileList->count() > 0) {
+                    alignMode = ALIGN_D2C_SW_MODE;
+                }
+            }
+
+            try {
+                // Enable frame synchronization
+                pipeline.enableFrameSync();
+            } catch(ob::Error &e) {
+                std::cerr << "Current device doesn't support frame sync!" << std::endl;
+            }
+        } else {
+            depthProfileList = pipeline.getStreamProfileList(OB_SENSOR_DEPTH);
+        }
+
+        if (depthProfileList->count() > 0) {
+            std::shared_ptr<ob::StreamProfile> depthProfile;
+            try {
+                // Select the profile with the same frame rate as color.
+                if (colorProfile) {
+                    depthProfile = depthProfileList->getVideoStreamProfile(OB_WIDTH_ANY, OB_HEIGHT_ANY, OB_FORMAT_ANY, colorProfile->fps());
+                }
+            } catch(...) {
+                depthProfile = nullptr;
+            }
+
+            if (!depthProfile) {
+                // If no matching profile is found, select the default profile.
+                depthProfile = depthProfileList->getProfile(OB_PROFILE_DEFAULT);
+            }
+            config->enableStream(depthProfile);
+        }
+        config->setAlignMode(alignMode);
+
+        // Starting the pipeline with the constructed config
+        pipeline.start(config);
+
+        // Initializing the point cloud with the parameters from the Camera
+        pointCloud.setCameraParam(pipeline.getCameraParam())
     }
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color)
-    {
-        switch (k4a_device_get_capture(device, &capture, 2000))
-        {
-        case K4A_WAIT_RESULT_SUCCEEDED:
-            break;
-        case K4A_WAIT_RESULT_TIMEOUT:
-            release();
-            throw std::runtime_error("Timed out waiting for a capture");
-        case K4A_WAIT_RESULT_FAILED:
-            release();
-            throw std::runtime_error("Failed to capture");
+    /**
+     * Grabs the most recent frame from the camera and generates a point cloud
+     * @param color if you want to include color in the point cloud
+     * @param depth2color if you want to include a depth to color mapping in the point cloud
+     * @return the point cloud with the specified parameters
+     */
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
+        // Getting the frames from the camera
+        frameset = pipeline.waitForFrames(TIMEOUT_DURATION);
+
+        if (frameset != nullptr && frameset->depthFrame() != nullptr && frameset->colorFrame() != nullptr) {
+            // point position value multiply depth value scale to convert uint to millimeter (for some devices, the default depth value uint is not
+            // millimeter)
+            // I don't know if this is needed
+            auto depthValueScale = frameset->depthFrame()->getValueScale();
+            pointCloud.setPositionDataScaled(depthValueScale);
+            try {
+                pointCloud.setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                std::shared_ptr<ob::Frame> frame = pointCloud.process(frameset);
+                std::cout << "Saved frame successfully!" << std::endl;
+            } catch (std::exception &e) {
+                std::cout << "Get point cloud failed" << std::endl;
+            }
+        } else {
+            std::cout << "Get color frame or depth frame failed!" << std::endl;    
         }
-        // get depth in any case
-        point_cloud_image = 0;
-        color_image = 0;
-        transformed_depth_image = 0;
-        transformed_color_image = 0;
-        point_cloud_image = 0;
+
+        // TODO: Update this so that we can still get some information if either the depth or color fails
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
-        if (color)
-            if (depth2color)
+        if (color) {
+            if (depth2color) {
                 cloud = prepare_cloud_RGBD_D2C();
-            else
+            } else {
                 cloud = prepare_cloud_RGBD_C2D();
-        else
+            }
+        } else {
             cloud = prepare_cloud_D();
+        }
 
         release();
 
         return cloud;
     }
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_D()
-    {
-        depth_image = k4a_capture_get_depth_image(capture);
-        if (depth_image == 0) {
-            release();
+    /**
+     * Prepares a point cloud with depth only
+     * @return a PCL point cloud with depth information only
+     */
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_D() {
+        // Grabbing the depth image from the framset
+        auto depthFrame = frameset->depthFrame();
+
+        if (depthFrame == nullptr) {
             throw std::runtime_error("Failed to get depth image from capture");
         }
-        k4a_image_create(K4A_IMAGE_FORMAT_CUSTOM,
-                         k4a_image_get_width_pixels(depth_image),
-                         k4a_image_get_height_pixels(depth_image),
-                         k4a_image_get_width_pixels(depth_image) * 3 * (int)sizeof(int16_t),
-                         &point_cloud_image);
-        if (K4A_RESULT_SUCCEEDED !=
-                k4a_transformation_depth_image_to_point_cloud(transformation,
-                                                              depth_image,
-                                                              K4A_CALIBRATION_TYPE_DEPTH,
-                                                              point_cloud_image)) {
-            release();
-            throw std::runtime_error("Failed to compute point cloud");
-        }
-        return create_cloud(point_cloud_image, 0);
+
+        // Creating a new point cloud object
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(depthFrame);
+        if (pcl_cloud == nullptr) std::runtime_error("Failed to convert frame to point cloud");
+
+        return pcl_cloud;
     }
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_C2D()
-    {
-        depth_image = k4a_capture_get_depth_image(capture);
-        if (depth_image == 0) {
-            release();
-            throw std::runtime_error("Failed to get depth image from capture");
-        }
-        color_image = k4a_capture_get_color_image(capture);
-        if (color_image == 0) {
-            release();
-            throw std::runtime_error("Failed to get color image from capture");
-        }
-        k4a_image_create(K4A_IMAGE_FORMAT_COLOR_BGRA32,
-                         k4a_image_get_width_pixels(depth_image),
-                         k4a_image_get_height_pixels(depth_image),
-                         k4a_image_get_width_pixels(depth_image) * 4 * (int)sizeof(uint8_t),
-                         &transformed_color_image);
-
-        k4a_image_create(K4A_IMAGE_FORMAT_CUSTOM,
-                         k4a_image_get_width_pixels(depth_image),
-                         k4a_image_get_height_pixels(depth_image),
-                         k4a_image_get_width_pixels(depth_image) * 3 * (int)sizeof(int16_t),
-                         &point_cloud_image);
-        if (K4A_RESULT_SUCCEEDED !=
-                k4a_transformation_color_image_to_depth_camera(transformation,
-                                                               depth_image,
-                                                               color_image,
-                                                               transformed_color_image)) {
-            release();
-            throw std::runtime_error("Failed to compute transformed depth image");
-        }
-        if (K4A_RESULT_SUCCEEDED !=
-                k4a_transformation_depth_image_to_point_cloud(transformation,
-                                                              depth_image,
-                                                              K4A_CALIBRATION_TYPE_DEPTH,
-                                                              point_cloud_image)) {
-            release();
-            throw std::runtime_error("Failed to compute point cloud");
-        }
-        return create_cloud(point_cloud_image, transformed_color_image);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_C2D() {
+        throw std::runtime_error("Unimplemented Method Exception");
     }
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_D2C()
-    {
-        depth_image = k4a_capture_get_depth_image(capture);
-        if (depth_image == 0) {
-            release();
-            throw std::runtime_error("Failed to get depth image from capture");
-        }
-        color_image = k4a_capture_get_color_image(capture);
-        if (color_image == 0) {
-            release();
-            throw std::runtime_error("Failed to get color image from capture");
-        }
-        k4a_image_create(K4A_IMAGE_FORMAT_DEPTH16,
-                         k4a_image_get_width_pixels(color_image),
-                         k4a_image_get_height_pixels(color_image),
-                         k4a_image_get_width_pixels(color_image) * (int)sizeof(uint16_t),
-                         &transformed_depth_image);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_D2C() {
+        throw std::runtime_error("Unimplemented Method Exception");
+    }
 
-        k4a_image_create(K4A_IMAGE_FORMAT_CUSTOM,
-                         k4a_image_get_width_pixels(color_image),
-                         k4a_image_get_height_pixels(color_image),
-                         k4a_image_get_width_pixels(color_image) * 3 * (int)sizeof(int16_t),
-                         &point_cloud_image);
-        if (K4A_RESULT_SUCCEEDED !=
-                k4a_transformation_depth_image_to_color_camera(transformation,
-                                                               depth_image,
-                                                               transformed_depth_image)) {
-            release();
-            throw std::runtime_error("Failed to compute transformed depth image");
-        }
-        if (K4A_RESULT_SUCCEEDED !=
-                k4a_transformation_depth_image_to_point_cloud(transformation,
-                                                              transformed_depth_image,
-                                                              K4A_CALIBRATION_TYPE_COLOR,
-                                                              point_cloud_image)) {
-            release();
-            throw std::runtime_error("Failed to compute point cloud");
-        }
-        return create_cloud(point_cloud_image, color_image);
+    void release() {
+        throw std::runtime_error("Unimplemented Method Exception");
     }
-    void release()
-    {
-        if (color_image)
-            k4a_image_release(color_image);
-        if (depth_image)
-            k4a_image_release(depth_image);
-        if (point_cloud_image)
-            k4a_image_release(point_cloud_image);
-        if (transformed_color_image)
-            k4a_image_release(transformed_color_image);
-        if (transformed_depth_image)
-            k4a_image_release(transformed_depth_image);
-        if (capture)
-            k4a_capture_release(capture);
-    }
-    void shut_down()
-    {
-        if (transformation)
-            k4a_transformation_destroy(transformation);
-        if (device)
-            k4a_device_close(device);
+
+    void shut_down() {
+        // Stopping the pipeline
+        pipeline.stop();
     }
 
 private:
-    k4a_device_t device;
-    k4a_device_configuration_t config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL;
-    k4a_calibration_t calibration;
-    k4a_transformation_t transformation;
-    k4a_capture_t capture;
-    k4a_image_t depth_image;
-    k4a_image_t color_image;
-    k4a_image_t point_cloud_image;
-    k4a_image_t transformed_depth_image;
-    k4a_image_t transformed_color_image;
+    ob::Pipeline pipeline;
+    std::shared_ptr<ob::Config> config;
+    ob::PointCloudFilter pointCloud;
+    std::shared_ptr<ob::FrameSet> frameset;
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr create_cloud(k4a_image_t input_point_cloud,
-                                                        k4a_image_t input_color_image)
-    {
-        int16_t *point_cloud_data = (int16_t *)(void *)k4a_image_get_buffer(input_point_cloud);
-        unsigned width = k4a_image_get_width_pixels(input_point_cloud);
-        unsigned height = k4a_image_get_height_pixels(input_point_cloud);
-        uint8_t *color_image_data;
-        if (input_color_image)
-            color_image_data = k4a_image_get_buffer(input_color_image);
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>(width, height));
-        std::size_t j = 0;
-        for (std::size_t i = 0; i < width * height; ++i) {
-            if (point_cloud_data[3 * i + 0] == 0 ||
-                    point_cloud_data[3 * i + 1] == 0 ||
-                    point_cloud_data[3 * i + 2] == 0)
-                continue;
-            if (input_color_image && color_image_data[4 * i + 0] == 0 &&
-                    color_image_data[4 * i + 1] == 0 &&
-                    color_image_data[4 * i + 2] == 0 &&
-                    color_image_data[4 * i + 3] == 0)
-                continue;
-            cloud->points[j].x = -point_cloud_data[3 * i + 0] / 1000.;
-            cloud->points[j].y = point_cloud_data[3 * i + 1] / 1000.;
-            cloud->points[j].z = -point_cloud_data[3 * i + 2] / 1000.;
-            cloud->points[j].b = input_color_image ? color_image_data[4 * i + 0] : 0;
-            cloud->points[j].g = input_color_image ? color_image_data[4 * i + 1] : 0;
-            cloud->points[j].r = input_color_image ? color_image_data[4 * i + 2] : 0;
-            j++;
+    /**
+     * Copies the contents of the frame into a point cloud and returns it
+     * @param frame the frame to convert into a point cloud
+     * @return the completed point cloud
+     */
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertFrameToPointCloud(ob::Frame frame) {
+        // If the frame isn't defined or if it isn't a PointsFrame
+        if (!ob_frame || ob_frame->type() != OB_FRAME_POINTS) {
+            return nullptr;
         }
-        if (j != width * height)
-            cloud->points.resize(j);
-        cloud->height = 1;
-        cloud->width = static_cast<std::uint32_t>(j);
-        cloud->is_dense = true;
-        return cloud;
+
+        // Grabbing the points and the data from the Frame
+        auto ob_points = ob_frame->as<ob::PointsFrame>();
+        auto ob_data = (const ob::ColorPoint *)ob_points->data();
+        auto width = ob_points->width();
+        auto height = ob_points->height();
+
+        // Defining a new PCL point cloud with the right size
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl_cloud->width = width;
+        pcl_cloud->height = height;
+        pcl_cloud->is_dense = false; // Point clouds from depth can contain invalid points
+        pcl_cloud->points.resize(width * height);
+
+        // Copying the Frame data into the new point cloud
+        for (size_t i = 0; i < width * height; ++i) {
+            pcl_cloud->points[i].x = ob_data[i].x;
+            pcl_cloud->points[i].y = ob_data[i].y;
+            pcl_cloud->points[i].z = ob_data[i].z;
+            pcl_cloud->points[i].r = ob_data[i].r;
+            pcl_cloud->points[i].g = ob_data[i].g;
+            pcl_cloud->points[i].b = ob_data[i].b;
+        }
+
+        return pcl_cloud;
     }
 };
 
