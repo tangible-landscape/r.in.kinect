@@ -24,7 +24,7 @@ extern "C" {
 
 // Global Variables
 // This is very long for testing purposes, just so I can make sure that it's not the issue
-#define TIMEOUT_DURATION 5000  // The timeout duration to wait for frames, in milliseconds
+#define TIMEOUT_DURATION 1000  // The timeout duration to wait for frames, in milliseconds
 
 class K4ADriver {
 public:
@@ -118,6 +118,11 @@ public:
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
         // Getting the frames from the camera
         frameset = pipeline.waitForFrames(TIMEOUT_DURATION);
+
+        // For debugging purposes, remove later
+        if (frameset == nullptr) std::cout << "Frame Null" << std::endl;
+        if (frameset->depthFrame() == nullptr) std::cout << "Depth Null" << std::endl;
+        if (frameset->colorFrame() == nullptr) std::cout << "Color Null" << std::endl;
 
         if (frameset != nullptr && frameset->depthFrame() != nullptr && frameset->colorFrame() != nullptr) {
             // point position value multiply depth value scale to convert uint to millimeter (for some devices, the default depth value uint is not
@@ -217,6 +222,8 @@ private:
      * @return the completed point cloud
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertFrameToPointCloud(std::shared_ptr<ob::Frame> ob_frame) {
+        std::cout << "Converting point cloud..." << std::endl; // Debugging
+
         // If the frame isn't defined or if it isn't a PointsFrame
         if (ob_frame == nullptr || ob_frame->type() != OB_FRAME_POINTS) {
             return nullptr;
