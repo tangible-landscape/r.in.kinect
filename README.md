@@ -16,8 +16,8 @@ Otherwise, please follow official installation guides of dependencies. Module r.
 
     git clone --single-branch --branch pcl-k4a https://github.com/tangible-landscape/r.in.kinect.git
     cd r.in.kinect
-    make MODULE_TOPDIR=../path/to/grass
-    make install MODULE_TOPDIR=../path/to/grass
+    make MODULE_TOPDIR=../path/to/grass ORBBEC_SDK_PATH=../path/to/OrbbecSDK
+    make install MODULE_TOPDIR=../path/to/grass ORBBEC_SDK_PATH=../path/to/OrbbecSDK
     
 You might need to edit the Makefile when an error ocurrs, check specifically you are using the installed PCL version.
 
