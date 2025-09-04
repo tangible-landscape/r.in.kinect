@@ -23,7 +23,8 @@ extern "C" {
 #include "libobsensor/h/ObTypes.h"
 
 // Global Variables
-#define TIMEOUT_DURATION 100  // The timeout duration to wait for frames, in milliseconds
+// This is very long for testing purposes, just so I can make sure that it's not the issue
+#define TIMEOUT_DURATION 5000  // The timeout duration to wait for frames, in milliseconds
 
 class K4ADriver {
 public:
