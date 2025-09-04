@@ -27,7 +27,7 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/io/ply_io.h>
 
-#include "k4adriver.h"
+#include "femto-driver.h"
 #include "binning.h"
 #include "binning_color.h"
 #include "calibrate.h"
@@ -775,7 +775,7 @@ int main(int argc, char **argv)
     else
         k4a_resolution = color_camera(color_camera_resolution_opt->answer);
     K4ADriver k4a;
-    k4a.initialize(K4A_DEPTH_MODE_NFOV_UNBINNED, k4a_resolution);
+    k4a.initialize();
 
     int j = 0;
     int failed = 0;
@@ -799,7 +799,7 @@ int main(int argc, char **argv)
                            k4a_resolution, depth2color, camera_resolution, reinit_sensor);
             if (reinit_sensor) {
                 k4a.shut_down();
-                k4a.initialize(K4A_DEPTH_MODE_NFOV_UNBINNED, k4a_resolution);
+                k4a.initialize();
                 reinit_sensor = false;  
             }
         }

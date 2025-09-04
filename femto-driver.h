@@ -6,7 +6,7 @@ extern "C" {
     #include <grass/glocale.h>
 }
 
-#include <k4a/k4a.h> // no longer necesary
+#include <k4a/k4a.h> // no longer necesary for this header file
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -19,19 +19,15 @@ extern "C" {
 
 // New include statements for new Orbbec SDK
 #include "libobsensor/ObSensor.hpp"
-#include "utils.hpp"
+#include "libobsensor/hpp/Utils.hpp"
+#include "libobsensor/h/ObTypes.h"
 
 // Global Variables
 #define TIMEOUT_DURATION 100  // The timeout duration to wait for frames, in milliseconds
 
 class K4ADriver {
 public:
-    K4ADriver()
-    {
-        config.camera_fps = K4A_FRAMES_PER_SECOND_5;
-        config.color_format = K4A_IMAGE_FORMAT_COLOR_BGRA32;
-        config.synchronized_images_only = true;
-    }
+    K4ADriver() {}
 
     /**
      * Initialize the driver using the parameters 
@@ -108,13 +104,14 @@ public:
         pipeline.start(config);
 
         // Initializing the point cloud with the parameters from the Camera
-        pointCloud.setCameraParam(pipeline.getCameraParam())
+        pointCloud.setCameraParam(pipeline.getCameraParam());
     }
 
     /**
      * Grabs the most recent frame from the camera and generates a point cloud
      * @param color if you want to include color in the point cloud
-     * @param depth2color if you want to include a depth to color mapping in the point cloud
+     * @param depth2color if you want to include a depth to color mapping in the point cloud,
+     * else include a color2depth mapping
      * @return the point cloud with the specified parameters
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
@@ -170,7 +167,7 @@ public:
 
         // Creating a new point cloud object
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(depthFrame);
-        if (pcl_cloud == nullptr) std::runtime_error("Failed to convert frame to point cloud");
+        if (pcl_cloud == nullptr) std::runtime_error("Failed to convert depth frame to point cloud");
 
         return pcl_cloud;
     }
@@ -179,8 +176,23 @@ public:
         throw std::runtime_error("Unimplemented Method Exception");
     }
 
+    /**
+     * Returning the depth-to-color mapped cloud
+     * This should be the default behavior of the frameset, so we shouldn't have the change
+     * the pipeline configuration to get the desired behavior
+     * @return the depth-to-color mapped point cloud
+     */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_D2C() {
-        throw std::runtime_error("Unimplemented Method Exception");
+        auto colorFrame = frameset->colorFrame();
+
+        if (colorFrame == nullptr) {
+            throw std::runtime_error("Failed to get color image from capture");
+        }
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(colorFrame);
+        if (pcl_cloud != nullptr) std::runtime_error("Failed to convert color frame to point cloud");
+
+        return pcl_cloud;
     }
 
     void release() {
@@ -203,27 +215,24 @@ private:
      * @param frame the frame to convert into a point cloud
      * @return the completed point cloud
      */
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertFrameToPointCloud(ob::Frame frame) {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertFrameToPointCloud(std::shared_ptr<ob::Frame> ob_frame) {
         // If the frame isn't defined or if it isn't a PointsFrame
-        if (!ob_frame || ob_frame->type() != OB_FRAME_POINTS) {
+        if (ob_frame == nullptr || ob_frame->type() != OB_FRAME_POINTS) {
             return nullptr;
         }
 
         // Grabbing the points and the data from the Frame
         auto ob_points = ob_frame->as<ob::PointsFrame>();
-        auto ob_data = (const ob::ColorPoint *)ob_points->data();
-        auto width = ob_points->width();
-        auto height = ob_points->height();
+        auto ob_data = static_cast<OBColorPoint *>(ob_points->data());
+        auto length = ob_points->dataSize();
 
         // Defining a new PCL point cloud with the right size
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-        pcl_cloud->width = width;
-        pcl_cloud->height = height;
         pcl_cloud->is_dense = false; // Point clouds from depth can contain invalid points
-        pcl_cloud->points.resize(width * height);
+        pcl_cloud->points.resize(length);
 
         // Copying the Frame data into the new point cloud
-        for (size_t i = 0; i < width * height; ++i) {
+        for (size_t i = 0; i < length; ++i) {
             pcl_cloud->points[i].x = ob_data[i].x;
             pcl_cloud->points[i].y = ob_data[i].y;
             pcl_cloud->points[i].z = ob_data[i].z;
