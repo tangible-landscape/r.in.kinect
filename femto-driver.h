@@ -16,15 +16,41 @@ extern "C" {
 #include <tuple>
 #include <fstream>
 #include <cmath>
+#include <mutex>
+#include <thread>
 
 // New include statements for new Orbbec SDK
 #include "libobsensor/ObSensor.hpp"
 #include "libobsensor/hpp/Utils.hpp"
 #include "libobsensor/h/ObTypes.h"
+#include "libobsensor/hpp/Pipeline.hpp"
+#include "libobsensor/hpp/Error.hpp"
 
 // Global Variables
 // This is very long for testing purposes, just so I can make sure that it's not the issue
-#define TIMEOUT_DURATION 1000  // The timeout duration to wait for frames, in milliseconds
+#define TIMEOUT_DURATION 5000  // The timeout duration to wait for frames, in milliseconds
+
+// Mapping from Sensor Type to Enabled Stream
+OBStreamType SensorTypeToStreamType(OBSensorType sensorType) {
+    switch(sensorType) {
+    case OB_SENSOR_COLOR:
+        return OB_STREAM_COLOR;
+    case OB_SENSOR_DEPTH:
+        return OB_STREAM_DEPTH;
+    case OB_SENSOR_IR:
+        return OB_STREAM_IR;
+    case OB_SENSOR_IR_LEFT:
+        return OB_STREAM_IR_LEFT;
+    case OB_SENSOR_IR_RIGHT:
+        return OB_STREAM_IR_RIGHT;
+    case OB_SENSOR_GYRO:
+        return OB_STREAM_GYRO;
+    case OB_SENSOR_ACCEL:
+        return OB_STREAM_ACCEL;
+    default:
+        return OB_STREAM_UNKNOWN;
+    }
+}
 
 class K4ADriver {
 public:
@@ -40,6 +66,47 @@ public:
 
         // Configure which streams to enable or disable for the Pipeline by creating a Config
         config = std::make_shared<ob::Config>();
+
+        // Set-up for stream configuration
+        auto device = pipeline.getDevice();
+        auto sensorList = device->getSensorList();
+        for (int i = 0; i < sensorList->count(); i++) {
+            auto sensorType = sensorList->type(i);
+            if (sensorType == OB_SENSOR_GYRO || sensorType == OB_SENSOR_ACCEL) {
+               continue;
+            }
+            auto streamType = SensorTypeToStreamType(sensorType);
+            config->enableVideoStream(streamType);
+        }
+        
+        // Setting Alignment Modes
+        depth2ColorAlign = std::make_shared<ob::Align>(OB_STREAM_COLOR);
+        color2DepthAlign = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
+
+        // Setting callbacks to their respective methods
+        depth2ColorAlign->setCallBack([this](std::shared_ptr<ob::Frame> frame) {
+            // std::unique_lock<std::mutex> lock(frameMutex);
+            this->colorFrame = frame;});
+        color2DepthAlign->setCallBack([this](std::shared_ptr<ob::Frame> frame) {
+            // std::unique_lock<std::mutex> lock(frameMutex);
+            this->depthFrame = frame;
+        });
+
+        // Callback to handle frame updates
+        pipeline.start(config, [&](std::shared_ptr<ob::FrameSet> frameset) {
+            auto count = frameset->frameCount();
+            for (int i = 0; i < count; i++) {
+                auto frame = frameset->getFrame(i);
+                std::unique_lock<std::mutex> lk(frameMutex);
+                if (frame->type() == OB_FRAME_DEPTH) {
+                    depth2ColorAlign->pushFrame(frame);
+                } else {
+                    color2DepthAlign->pushFrame(frame);
+                }
+            }
+        });
+
+        /*
 
         // Turn on D2C alignment, which needs to be turned on when generating RGBD point clouds
         std::shared_ptr<ob::VideoStreamProfile> colorProfile = nullptr;
@@ -99,25 +166,18 @@ public:
             }
             config->enableStream(depthProfile);
         }
+            */
 
         // Aggregating frames
-        config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
-
-        // Setting Alignment Modes
-        depth2ColorAlign = std::make_shared<ob::Align>(OB_STREAM_COLOR);
-        color2DepthAlign = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
-
-        // Setting callbacks to their respective methods
-        depth2ColorAlign->setCallBack([](std::shared_ptr<ob::Frame> frame) {colorFrame = frame;});
-        color2DepthAlign->setCallBack([](std::shared_ptr<ob::Frame> frame) {depthFrame = frame;});
-
-        config->setAlignMode(alignMode);
+        // config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
+        // config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_FULL_FRAME_REQUIRE);
+        // config->setAlignMode(alignMode);
 
         // Starting the pipeline with the constructed config
-        pipeline.start(config);
+        // pipeline.start(config);
 
         // Initializing the point cloud with the parameters from the Camera
-        pointCloud.setCameraParam(pipeline.getCameraParam());
+        // pointCloud.setCameraParam(pipeline.getCameraParam());
     }
 
     /**
@@ -128,14 +188,27 @@ public:
      * @return the point cloud with the specified parameters
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
+        while (depthFrame == nullptr || colorFrame == nullptr) std::cout << "Waiting on Frame..." << std::endl;  // Wait for the initial frames, if necessary
+
+        /*  Don't need because it's in a callback
         // Getting the frames from the camera
         frameset = pipeline.waitForFrames(TIMEOUT_DURATION);
 
         // For debugging purposes, remove later
         if (frameset == nullptr) std::cout << "Frame Null" << std::endl;
-        if (frameset->depthFrame() == nullptr) std::cout << "Depth Null" << std::endl;
-        if (frameset->colorFrame() == nullptr) std::cout << "Color Null" << std::endl;
 
+        // Updating framesets if they're non-null
+        if (frameset->depthFrame() != nullptr) {
+            std::cout << "Depth to Color Processing" << std::endl;
+            this->colorFrame = depth2ColorAlign->process(frameset);
+        }
+        if (frameset->colorFrame() != nullptr) {
+            std::cout << "Color to Depth Processing" << std::endl;
+            this->depthFrame = color2DepthAlign->process(frameset);
+        }
+            */
+
+        /*
         if (frameset != nullptr && frameset->depthFrame() != nullptr && frameset->colorFrame() != nullptr) {
             // point position value multiply depth value scale to convert uint to millimeter (for some devices, the default depth value uint is not
             // millimeter)
@@ -152,17 +225,16 @@ public:
         } else {
             std::cout << "Get color frame or depth frame failed!" << std::endl;    
         }
+        */
 
         // TODO: Update this so that we can still get some information if either the depth or color fails
 
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
         if (color) {
             if (depth2color) {
-                depth2ColorAlign->pushFrame(frameset);
-                return prepare_cloud_RGBD_D2C();
+                cloud = prepare_cloud_RGBD_D2C();
             } else {
-                color2DepthAlign->pushFrame(frameset);
-                return prepare_cloud_RGBD_C2D();
+                cloud = prepare_cloud_RGBD_C2D();
             }
         } else {
             cloud = prepare_cloud_D();
@@ -183,6 +255,7 @@ public:
 private:
     ob::Pipeline pipeline;
     std::shared_ptr<ob::Config> config;
+    std::mutex frameMutex;  // Mutex for locking the frames
     ob::PointCloudFilter pointCloud;
     std::shared_ptr<ob::FrameSet> frameset;
     // These should be updated by the callback functions, then returned when desired
@@ -190,6 +263,8 @@ private:
     std::shared_ptr<ob::Frame> colorFrame;
     std::shared_ptr<ob::Align> depth2ColorAlign;
     std::shared_ptr<ob::Align> color2DepthAlign;
+    // Map for holding the most recent frame of each type
+    std::map<OBFrameType, std::shared_ptr<ob::Frame>> frameMap;
 
     /**
      * Prepares a point cloud with depth only
