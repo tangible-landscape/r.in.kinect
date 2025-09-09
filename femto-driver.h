@@ -99,6 +99,13 @@ public:
             }
             config->enableStream(depthProfile);
         }
+
+        // Setting Alignment Modes
+        depth2ColorAlign = std::make_shared<ob::Align>(OB_STREAM_COLOR);
+        color2DepthAlign = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
+
+        // Setting callbacks to their respective methods
+        depth2ColorAlign->setCallback(std::shared_ptr<ob::Frame> frame) {}
         config->setAlignMode(alignMode);
 
         // Starting the pipeline with the constructed config
@@ -159,6 +166,15 @@ public:
         return cloud;
     }
 
+private:
+    ob::Pipeline pipeline;
+    std::shared_ptr<ob::Config> config;
+    ob::PointCloudFilter pointCloud;
+    std::shared_ptr<ob::FrameSet> frameset;
+    std::shared_ptr<ob::Align> depth2ColorAlign;
+    std::shared_ptr<ob::Align> color2DepthAlign;
+
+    
     /**
      * Prepares a point cloud with depth only
      * @return a PCL point cloud with depth information only
@@ -206,12 +222,6 @@ public:
         // Stopping the pipeline
         pipeline.stop();
     }
-
-private:
-    ob::Pipeline pipeline;
-    std::shared_ptr<ob::Config> config;
-    ob::PointCloudFilter pointCloud;
-    std::shared_ptr<ob::FrameSet> frameset;
 
     /**
      * Copies the contents of the frame into a point cloud and returns it
