@@ -100,13 +100,16 @@ public:
             config->enableStream(depthProfile);
         }
 
+        // Aggregating frames
+        config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
+
         // Setting Alignment Modes
         depth2ColorAlign = std::make_shared<ob::Align>(OB_STREAM_COLOR);
         color2DepthAlign = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
 
         // Setting callbacks to their respective methods
-        depth2ColorAlign->setCallBack((std::shared_ptr<ob::Frame> frame) {return prepare_cloud_RGBD_D2C(frame);});
-        color2DepthAlign->setCallBack((std::shared_ptr<ob::Frame> frame) {return prepare_cloud_RGBD_C2D(frame);});
+        depth2ColorAlign->setCallBack([](std::shared_ptr<ob::Frame> frame) {colorFrame = frame;});
+        color2DepthAlign->setCallBack([](std::shared_ptr<ob::Frame> frame) {depthFrame = frame;});
 
         config->setAlignMode(alignMode);
 
@@ -156,7 +159,7 @@ public:
         if (color) {
             if (depth2color) {
                 depth2ColorAlign->pushFrame(frameset);
-                return prepare_cloud_RGBD_D2C()
+                return prepare_cloud_RGBD_D2C();
             } else {
                 color2DepthAlign->pushFrame(frameset);
                 return prepare_cloud_RGBD_C2D();
@@ -210,11 +213,11 @@ private:
      * @return the depth-to-color mapped PCL point cloud
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_C2D() {
-        if (this.depthFrame == nullptr) {
+        if (depthFrame == nullptr) {
             throw std::runtime_error("No depth frame in cache yet");
         }
 
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(this.depthFrame);
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(depthFrame);
         if (pcl_cloud == nullptr) std::runtime_error("Failed to convert depth frame to point cloud");
 
         return pcl_cloud;
@@ -227,11 +230,11 @@ private:
      * @return the depth-to-color mapped point cloud
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_D2C() {
-        if (this.colorFrame == nullptr) {
+        if (colorFrame == nullptr) {
             throw std::runtime_error("No color frame in cache yet");
         }
 
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(this.colorFrame);
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(colorFrame);
         if (pcl_cloud != nullptr) std::runtime_error("Failed to convert color frame to point cloud");
 
         return pcl_cloud;
