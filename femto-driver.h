@@ -105,7 +105,9 @@ public:
         color2DepthAlign = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
 
         // Setting callbacks to their respective methods
-        depth2ColorAlign->setCallback(std::shared_ptr<ob::Frame> frame) {}
+        depth2ColorAlign->setCallBack((std::shared_ptr<ob::Frame> frame) {return prepare_cloud_RGBD_D2C(frame);});
+        color2DepthAlign->setCallBack((std::shared_ptr<ob::Frame> frame) {return prepare_cloud_RGBD_C2D(frame);});
+
         config->setAlignMode(alignMode);
 
         // Starting the pipeline with the constructed config
@@ -153,15 +155,15 @@ public:
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
         if (color) {
             if (depth2color) {
-                cloud = prepare_cloud_RGBD_D2C();
+                depth2ColorAlign->pushFrame(frameset);
+                return prepare_cloud_RGBD_D2C()
             } else {
-                cloud = prepare_cloud_RGBD_C2D();
+                color2DepthAlign->pushFrame(frameset);
+                return prepare_cloud_RGBD_C2D();
             }
         } else {
             cloud = prepare_cloud_D();
         }
-
-        release();
 
         return cloud;
     }
@@ -180,9 +182,11 @@ private:
     std::shared_ptr<ob::Config> config;
     ob::PointCloudFilter pointCloud;
     std::shared_ptr<ob::FrameSet> frameset;
+    // These should be updated by the callback functions, then returned when desired
+    std::shared_ptr<ob::Frame> depthFrame;
+    std::shared_ptr<ob::Frame> colorFrame;
     std::shared_ptr<ob::Align> depth2ColorAlign;
     std::shared_ptr<ob::Align> color2DepthAlign;
-
 
     /**
      * Prepares a point cloud with depth only
@@ -200,24 +204,34 @@ private:
         return pcl_cloud;
     }
 
+    /**
+     * Returning a color-to-depth mapped cloud from a depth frame
+     * @param depthFrame the depth frame to convert to a point cloud
+     * @return the depth-to-color mapped PCL point cloud
+     */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_C2D() {
-        throw std::runtime_error("Unimplemented Method Exception");
+        if (this.depthFrame == nullptr) {
+            throw std::runtime_error("No depth frame in cache yet");
+        }
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(this.depthFrame);
+        if (pcl_cloud == nullptr) std::runtime_error("Failed to convert depth frame to point cloud");
+
+        return pcl_cloud;
     }
 
     /**
-     * Returning the depth-to-color mapped cloud
+     * Returning the depth-to-color mapped cloud from a color frame
      * This should be the default behavior of the frameset, so we shouldn't have the change
      * the pipeline configuration to get the desired behavior
      * @return the depth-to-color mapped point cloud
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_D2C() {
-        auto colorFrame = frameset->colorFrame();
-
-        if (colorFrame == nullptr) {
-            throw std::runtime_error("Failed to get color image from capture");
+        if (this.colorFrame == nullptr) {
+            throw std::runtime_error("No color frame in cache yet");
         }
 
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(colorFrame);
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(this.colorFrame);
         if (pcl_cloud != nullptr) std::runtime_error("Failed to convert color frame to point cloud");
 
         return pcl_cloud;
