@@ -166,6 +166,15 @@ public:
         return cloud;
     }
 
+    void release() {
+        throw std::runtime_error("Unimplemented Method Exception");
+    }
+
+    void shut_down() {
+        // Stopping the pipeline
+        pipeline.stop();
+    }
+
 private:
     ob::Pipeline pipeline;
     std::shared_ptr<ob::Config> config;
@@ -174,7 +183,7 @@ private:
     std::shared_ptr<ob::Align> depth2ColorAlign;
     std::shared_ptr<ob::Align> color2DepthAlign;
 
-    
+
     /**
      * Prepares a point cloud with depth only
      * @return a PCL point cloud with depth information only
@@ -212,15 +221,6 @@ private:
         if (pcl_cloud != nullptr) std::runtime_error("Failed to convert color frame to point cloud");
 
         return pcl_cloud;
-    }
-
-    void release() {
-        throw std::runtime_error("Unimplemented Method Exception");
-    }
-
-    void shut_down() {
-        // Stopping the pipeline
-        pipeline.stop();
     }
 
     /**
