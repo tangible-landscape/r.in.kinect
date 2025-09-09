@@ -166,10 +166,7 @@ public:
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_D() {
         // Grabbing the depth image from the framset
         auto depthFrame = frameset->depthFrame();
-
-        if (depthFrame == nullptr) {
-            throw std::runtime_error("Failed to get depth image from capture");
-        }
+        if (depthFrame == nullptr) throw std::runtime_error("Failed to get depth image from capture");
 
         // Creating a new point cloud object
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(depthFrame);
