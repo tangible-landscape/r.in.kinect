@@ -2,6 +2,8 @@
     "files.associations": {
         "memory": "cpp",
         "semaphore": "cpp",
-        "stop_token": "cpp"
+        "stop_token": "cpp",
+        "array": "cpp",
+        "string_view": "cpp"
     }
 }
