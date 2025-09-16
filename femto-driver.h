@@ -269,21 +269,38 @@ public:
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
         // Waiting for both frames to sync up
-        while (depthFrameset == nullptr || colorFrameset == nullptr) {
-            auto fs = pipeline.waitForFrames();  // Making sure we get enough frames in the frame
-            if (fs->depthFrame() != nullptr) depthFrameset = fs;
-            if (fs->colorFrame() != nullptr) colorFrameset = fs;
-        }
 
-        auto colorFrame = colorFrameset->colorFrame();
+        // These will store the processed frames after they are gathered
+        std::shared_ptr<ob::Frame> colorFrame;
+        std::shared_ptr<ob::Frame> depthFrame;
+        const float DEFAULT = -1.0f;
+        float depthValueScale = DEFAULT;
+        while (colorFrame == nullptr || depthFrame == nullptr) {
+            auto fs = pipeline.waitForFrames();
+            if (fs != nullptr) {
+                if (fs->depthFrame() != nullptr) {
+                    pointCloud.setPositionDataScaled(depthValueScale);
+                    pointCloud.setCreatePointFormat(OB_FORMAT_POINT);
+                    depthFrame = pointCloud.process(fs);  
+                }
+                if (fs->colorFrame() != nullptr && depthValueScale != DEFAULT) {
+                    pointCloud.setPositionDataScaled(depthValueScale);
+                    pointCloud.setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                    colorFrame = pointCloud.process(fs);  
+                }
+            }
+        }
+        
+        // These are different frames...
+        /*
         if (colorFrame) {
             std::cout << "Color Frame: " << colorFrame->width() << "x" << colorFrame->height() << " " << colorFrame->timeStampUs() << " us" << std::endl;
         }
 
-        auto depthFrame = depthFrameset->depthFrame();
         if(depthFrame) {
             std::cout << "Depth Frame: " << depthFrame->width() << "x" << depthFrame->height() << " " << depthFrame->timeStampUs() << " us" << std::endl;
         }
+        */
 
         /*  Don't need because it's in a callback
         // Getting the frames from the camera
@@ -324,40 +341,29 @@ public:
 
         // TODO: Update this so that we can still get some information if either the depth or color fails
 
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
         if (color) {
             if (depth2color) {
-                std::cout << "Depth 2 Color" << std::endl;
-                auto depthValueScale = depthFrameset->depthFrame()->getValueScale();
-                pointCloud.setPositionDataScaled(depthValueScale);
-                pointCloud.setCreatePointFormat(OB_FORMAT_RGB_POINT);
-                std::shared_ptr<ob::Frame> frame = pointCloud.process(depthFrameset);        
-                cloud = prepare_cloud_RGBD_D2C(frame);
+                std::cout << "Depth 2 Color" << std::endl;       
+                cloud = prepare_cloud_RGBD_D2C(depthFrame);
             } else {
-                std::cout << "Color 2 Depth" << std::endl;
-                auto depthValueScale = depthFrameset->depthFrame()->getValueScale();
-                pointCloud.setPositionDataScaled(depthValueScale);
-                pointCloud.setCreatePointFormat(OB_FORMAT_RGB_POINT);
-                std::shared_ptr<ob::Frame> frame = pointCloud.process(depthFrameset);        
-                cloud = prepare_cloud_RGBD_C2D(frame);
+                std::cout << "Color 2 Depth" << std::endl;    
+                cloud = prepare_cloud_RGBD_C2D(colorFrame);
             }
         } else {
-            std::cout << "Depth Only" << std::endl;
-            auto depthValueScale = depthFrameset->depthFrame()->getValueScale();
-            pointCloud.setPositionDataScaled(depthValueScale);
-            pointCloud.setCreatePointFormat(OB_FORMAT_POINT);
-            std::cout << "Processing Point Cloud" << std::endl;
-            std::shared_ptr<ob::Frame> frame = pointCloud.process(depthFrameset);   
-            std::cout << "Converting to PCL" << std::endl;     
-            cloud = prepare_cloud_D(frame);
+            std::cout << "Depth Only" << std::endl;    
+            cloud = prepare_cloud_D(depthFrame);
         }
 
         std::cout << "Final Cloud Size: " << cloud->size() << std::endl;
 
+        /*
+        This was tested and works successfully
         // Trying to make a KDTree, since that is what's going wrong
         pcl::KdTreeFLANN<pcl::PointXYZRGB>::Ptr tree(new pcl::KdTreeFLANN<pcl::PointXYZRGB>);
         tree->setInputCloud(cloud);
         std::cout << "Created KDTree" << std::endl;
+        */
         return cloud;
     }
 
@@ -375,19 +381,12 @@ private:
     std::shared_ptr<ob::Config> config;
     std::mutex frameMutex;  // Mutex for locking the frames
     ob::PointCloudFilter pointCloud;
-    // These should be updated by the callback functions, then returned when desired
-    std::shared_ptr<ob::FrameSet> depthFrameset;
-    std::shared_ptr<ob::FrameSet> colorFrameset;
-    std::shared_ptr<ob::Align> depth2ColorAlign;
-    std::shared_ptr<ob::Align> color2DepthAlign;
-    // Map for holding the most recent frame of each type
-    std::map<OBFrameType, std::shared_ptr<ob::Frame>> frameMap;
 
     /**
      * Prepares a point cloud with depth only
      * @return a PCL point cloud with depth information only
      */
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_D(std::shared_ptr<ob::Frame> frame) {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_D(const std::shared_ptr<ob::Frame>& frame) {
         // Grabbing the depth image from the frameset
         if (frame == nullptr) throw std::runtime_error("Failed to get depth image from capture");
         
@@ -403,7 +402,7 @@ private:
      * @param depthFrame the depth frame to convert to a point cloud
      * @return the depth-to-color mapped PCL point cloud
      */
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_C2D(std::shared_ptr<ob::Frame> frame) {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_C2D(const std::shared_ptr<ob::Frame>& frame) {
         if (frame == nullptr) {
             throw std::runtime_error("No depth frame in cache yet");
         }
@@ -420,7 +419,7 @@ private:
      * the pipeline configuration to get the desired behavior
      * @return the depth-to-color mapped point cloud
      */
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_D2C(std::shared_ptr<ob::Frame> frame) {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr prepare_cloud_RGBD_D2C(const std::shared_ptr<ob::Frame>& frame) {
         if (frame == nullptr) throw std::runtime_error("No color frame in cache yet");
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(frame);
@@ -434,7 +433,7 @@ private:
      * @param frame the frame to convert into a point cloud
      * @return the completed point cloud
      */
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertFrameToPointCloud(std::shared_ptr<ob::Frame> ob_frame) {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertFrameToPointCloud(const std::shared_ptr<ob::Frame>& ob_frame) {
         std::cout << "Converting point cloud..." << std::endl; // Debugging
 
         // If the frame isn't defined or if it isn't a PointsFrame
@@ -454,7 +453,7 @@ private:
         // Counting the number of valid points
         static const double epsilon = 1e-6;  // Threshold for distance calculation
         long long int numValidPoints = 0;
-        for (int i = 0; i < length; i++) {
+        for (long unsigned int i = 0; i < length; i++) {
             if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
                 numValidPoints++;
             }
@@ -472,12 +471,12 @@ private:
 
         bool hasColor = false;
         // Copying the Frame data into the new point cloud
-        int j = 0;  // index for the PCL point cloud
+        uint32_t j = 0;  // index for the PCL point cloud
         for (size_t i = 0; i < length; i++) {
             if (std::abs(points[i].x) != 0 && std::abs(points[i].y) != 0 && std::abs(points[i].z) != 0) {
-                pcl_cloud->points[j].x = -points[i].x / 1000.0;
+                pcl_cloud->points[j].x = points[i].x / 1000.0;
                 pcl_cloud->points[j].y = points[i].y / 1000.0;
-                pcl_cloud->points[j].z = -points[i].z / 1000.0;
+                pcl_cloud->points[j].z = points[i].z / 1000.0;
                 pcl_cloud->points[j].r = 0; // hasColor ? points[i].r : 0;
                 pcl_cloud->points[j].g = 0; // hasColor ? points[i].g : 0;
                 pcl_cloud->points[j].b = 0; // hasColor ? points[i].b : 0;
@@ -488,7 +487,7 @@ private:
         std::cout << "Number of points added: " << j << std::endl;
         if (j != cloud_width * cloud_height) pcl_cloud->points.resize(j);
         pcl_cloud->height = 1;
-        pcl_cloud->width = static_cast<std::uint32_t>(j);
+        pcl_cloud->width = j;
         pcl_cloud->is_dense = true;
         std::cout << "Cloud Size:  " << pcl_cloud->size() << std::endl;
 
