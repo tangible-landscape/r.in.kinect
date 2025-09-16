@@ -4,6 +4,7 @@
         "semaphore": "cpp",
         "stop_token": "cpp",
         "array": "cpp",
-        "string_view": "cpp"
+        "string_view": "cpp",
+        "ostream": "cpp"
     }
 }

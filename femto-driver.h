@@ -10,6 +10,7 @@ extern "C" {
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+// #include <pcl/visualization/cloud_viewer.h>
 
 #include <string>
 #include <iostream>
@@ -351,6 +352,12 @@ public:
             cloud = prepare_cloud_D(frame);
         }
 
+        std::cout << "Final Cloud Size: " << cloud->size() << std::endl;
+
+        // Trying to make a KDTree, since that is what's going wrong
+        pcl::KdTreeFLANN<pcl::PointXYZRGB>::Ptr tree(new pcl::KdTreeFLANN<pcl::PointXYZRGB>);
+        tree->setInputCloud(cloud);
+        std::cout << "Created KDTree" << std::endl;
         return cloud;
     }
 
@@ -435,8 +442,12 @@ private:
             return nullptr;
         }
 
+        uint32_t cloud_width = 1920; // ob_frame->width();
+        uint32_t cloud_height = 1080; // ob_frame->height();
+
         // Grabbing the points and the data from the Frame
         auto ob_points = ob_frame->as<ob::PointsFrame>();
+        std::cout << "Cloud Width and Height: " << cloud_width << " " << cloud_height << std::endl;
         OBPoint *points = (OBPoint *) ob_points->data();
         auto length = ob_points->dataSize() / sizeof(OBPoint);
 
@@ -452,30 +463,41 @@ private:
         std::cout << "Num Valid Points: " << numValidPoints << std::endl;
 
         // Defining a new PCL point cloud with the right size
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>(numValidPoints, 1));
-        pcl_cloud->is_dense = true; // Point clouds from depth can contain invalid points
-        pcl_cloud->points.resize(numValidPoints);
+        //pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>(numValidPoints, 1));
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>(cloud_width, cloud_height));  // Trying to push into a default initialization
+        // pcl_cloud->is_dense = true; // We're filtering out the invalid points
+        //pcl_cloud->points.resize(numValidPoints);
 
-        // Code gets to here ---
         std::cout << "Point Cloud Length: " << length << std::endl;
 
+        bool hasColor = false;
         // Copying the Frame data into the new point cloud
         int j = 0;  // index for the PCL point cloud
         for (size_t i = 0; i < length; i++) {
-            if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
-                pcl::PointXYZRGB *pt = new pcl::PointXYZRGB(points[i].x, points[i].y, points[i].z, 1, 1, 1);
-                pcl_cloud->push_back(*pt);
-                // pcl_cloud->points[j].x = points[i].x;
-                // pcl_cloud->points[j].y = points[i].y;
-                // pcl_cloud->points[j].z = points[i].z;
-                // j++;
+            if (std::abs(points[i].x) != 0 && std::abs(points[i].y) != 0 && std::abs(points[i].z) != 0) {
+                pcl_cloud->points[j].x = -points[i].x / 1000.0;
+                pcl_cloud->points[j].y = points[i].y / 1000.0;
+                pcl_cloud->points[j].z = -points[i].z / 1000.0;
+                pcl_cloud->points[j].r = 0; // hasColor ? points[i].r : 0;
+                pcl_cloud->points[j].g = 0; // hasColor ? points[i].g : 0;
+                pcl_cloud->points[j].b = 0; // hasColor ? points[i].b : 0;
+                j++;
             }
-            // pcl_cloud->points[i].r = ob_data[i].r;
-            // pcl_cloud->points[i].g = ob_data[i].g;
-            // pcl_cloud->points[i].b = ob_data[i].b;
         }
 
+        std::cout << "Number of points added: " << j << std::endl;
+        if (j != cloud_width * cloud_height) pcl_cloud->points.resize(j);
+        pcl_cloud->height = 1;
+        pcl_cloud->width = static_cast<std::uint32_t>(j);
+        pcl_cloud->is_dense = true;
         std::cout << "Cloud Size:  " << pcl_cloud->size() << std::endl;
+
+        /*
+        // Attempting to visualize the point cloud 
+        pcl::visualization::CloudViewer viewer("Simple Cloud Viewer");
+        viewer.showCloud(pcl_cloud);
+        while (!viewer.wasStopped()) {}
+        */
 
         return pcl_cloud;
     }
