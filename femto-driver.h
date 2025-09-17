@@ -269,24 +269,34 @@ public:
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
         // Waiting for both frames to sync up
-
+        std::cout << "get_cloud called!" << std::endl;
         // These will store the processed frames after they are gathered
-        std::shared_ptr<ob::Frame> colorFrame;
-        std::shared_ptr<ob::Frame> depthFrame;
         const float DEFAULT = -1.0f;
         float depthValueScale = DEFAULT;
-        while (colorFrame == nullptr || depthFrame == nullptr) {
+        while (!this->haveColor || !this->haveDepth) {
             auto fs = pipeline.waitForFrames();
             if (fs != nullptr) {
                 if (fs->depthFrame() != nullptr) {
+                    std::cout << "Grabbing a color frame" << std::endl;
                     pointCloud.setPositionDataScaled(depthValueScale);
                     pointCloud.setCreatePointFormat(OB_FORMAT_POINT);
-                    depthFrame = pointCloud.process(fs);  
+                    pointCloud.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
+                        this->colorFrame = frame;
+                        std::cout << "Processed Color Frame Callback" << std::endl;
+                    });
+                    this->haveDepth = true;
+                    depthFrame = pointCloud.pushFrame(fs);  
                 }
                 if (fs->colorFrame() != nullptr && depthValueScale != DEFAULT) {
+                    std::cout << "Grabbing a depth frame" << std::endl;
                     pointCloud.setPositionDataScaled(depthValueScale);
                     pointCloud.setCreatePointFormat(OB_FORMAT_RGB_POINT);
-                    colorFrame = pointCloud.process(fs);  
+                    pointCloud.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
+                        this->colorFrame = frame;
+                        std::cout << "Processed Depth Frame Callback" << std::endl;
+                    });
+                    this->haveColor = true;
+                    colorFrame = pointCloud.pushFrame(fs);  
                 }
             }
         }
@@ -381,6 +391,12 @@ private:
     std::shared_ptr<ob::Config> config;
     std::mutex frameMutex;  // Mutex for locking the frames
     ob::PointCloudFilter pointCloud;
+    // Processed frames for the point clouds
+    std::shared_ptr<ob::Frame> depthFrame;
+    std::shared_ptr<ob::Frame> colorFrame;
+    // Flags to indicate if the frames are processed, used for more immediate feedback than the callback
+    bool haveColor = false;
+    bool haveDepth = false;
 
     /**
      * Prepares a point cloud with depth only
