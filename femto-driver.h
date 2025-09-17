@@ -104,6 +104,7 @@ public:
             try {
                 // Enable frame synchronization
                 pipeline.enableFrameSync();
+                std::cout << "Enabled frame sync!" << std::endl;
             }
             catch(ob::Error &e) {
                 std::cerr << "Current device is not support frame sync!" << std::endl;
@@ -138,7 +139,23 @@ public:
 
         // get camera intrinsic and extrinsic parameters form pipeline and set to point cloud filter
         auto cameraParam = pipeline.getCameraParam();
-        pointCloud.setCameraParam(cameraParam);
+        depthPCF.setCameraParam(cameraParam);
+        colorPCF.setCameraParam(cameraParam);
+
+        // Setting Callbacks
+        depthPCF.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
+            this->depthCloud = convertFrameToPointCloud(frame);
+            std::cout << "Processed Depth Frame Callback" << std::endl;
+        });
+        colorPCF.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
+            this->colorFrame = frame;
+            std::cout << "Processed Color Frame Callback" << std::endl;
+        });
+
+        // Setting the point formats
+        colorPCF.setCreatePointFormat(OB_FORMAT_RGB_POINT);
+        depthPCF.setCreatePointFormat(OB_FORMAT_POINT);
+
         /*
         // Setting the logger severity to a warning default
         ob::Context::setLoggerSeverity(OB_LOG_SEVERITY_WARN);
@@ -273,32 +290,32 @@ public:
         // These will store the processed frames after they are gathered
         const float DEFAULT = -1.0f;
         float depthValueScale = DEFAULT;
-        while (!this->haveColor || !this->haveDepth) {
-            auto fs = pipeline.waitForFrames();
-            if (fs != nullptr) {
-                if (fs->depthFrame() != nullptr) {
-                    std::cout << "Grabbing a color frame" << std::endl;
-                    pointCloud.setPositionDataScaled(depthValueScale);
-                    pointCloud.setCreatePointFormat(OB_FORMAT_POINT);
-                    pointCloud.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
-                        this->colorFrame = frame;
-                        std::cout << "Processed Color Frame Callback" << std::endl;
-                    });
-                    this->haveDepth = true;
-                    depthFrame = pointCloud.pushFrame(fs);  
-                }
-                if (fs->colorFrame() != nullptr && depthValueScale != DEFAULT) {
-                    std::cout << "Grabbing a depth frame" << std::endl;
-                    pointCloud.setPositionDataScaled(depthValueScale);
-                    pointCloud.setCreatePointFormat(OB_FORMAT_RGB_POINT);
-                    pointCloud.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
-                        this->colorFrame = frame;
-                        std::cout << "Processed Depth Frame Callback" << std::endl;
-                    });
-                    this->haveColor = true;
-                    colorFrame = pointCloud.pushFrame(fs);  
-                }
+        int index = 0;
+        while (!this->haveDepth) {
+            auto fs = pipeline.waitForFrames(1000);
+            if (fs == nullptr) continue;
+            
+            std::cout << "Loop Index: " << index++ << std::endl;
+            /*
+            if (!haveColor && fs->colorFrame() != nullptr && depthValueScale != DEFAULT) {
+                std::cout << "Grabbing a color frame" << std::endl;
+                colorPCF.setPositionDataScaled(depthValueScale);
+                this->haveColor = true;
+                colorPCF.pushFrame(fs);  // Gets assigned when the callback hits
             }
+            */
+            
+            if (!haveDepth && fs->depthFrame() != nullptr) {
+                std::cout << "Grabbing a depth frame" << std::endl;
+                depthValueScale = fs->depthFrame()->getValueScale();
+                depthPCF.setPositionDataScaled(depthValueScale);
+                this->haveDepth = true;
+                depthPCF.pushFrame(fs);  // Gets assigned when the callback hits
+            }
+        }
+
+        while (this->depthFrame == nullptr) {
+            // Busy waiting for the async to process, this is bad practice but temporary
         }
         
         // These are different frames...
@@ -362,7 +379,7 @@ public:
             }
         } else {
             std::cout << "Depth Only" << std::endl;    
-            cloud = prepare_cloud_D(depthFrame);
+            cloud = this->depthCloud;
         }
 
         std::cout << "Final Cloud Size: " << cloud->size() << std::endl;
@@ -388,10 +405,12 @@ public:
 
 private:
     ob::Pipeline pipeline;
-    std::shared_ptr<ob::Config> config;
     std::mutex frameMutex;  // Mutex for locking the frames
-    ob::PointCloudFilter pointCloud;
+    // Two point cloud filters for depth and color
+    ob::PointCloudFilter depthPCF;
+    ob::PointCloudFilter colorPCF;
     // Processed frames for the point clouds
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr depthCloud;
     std::shared_ptr<ob::Frame> depthFrame;
     std::shared_ptr<ob::Frame> colorFrame;
     // Flags to indicate if the frames are processed, used for more immediate feedback than the callback
@@ -439,7 +458,7 @@ private:
         if (frame == nullptr) throw std::runtime_error("No color frame in cache yet");
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = convertFrameToPointCloud(frame);
-        if (pcl_cloud != nullptr) std::runtime_error("Failed to convert color frame to point cloud");
+        if (pcl_cloud == nullptr) std::runtime_error("Failed to convert color frame to point cloud");
 
         return pcl_cloud;
     }
