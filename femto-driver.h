@@ -55,6 +55,10 @@ OBStreamType SensorTypeToStreamType(OBSensorType sensorType) {
 
 class K4ADriver {
 public:
+    // Maybe global variables instead of class members so they never go out of scope
+    ob::Pipeline pipeline;
+    ob::PointCloudFilter depthPCF;
+    
     K4ADriver() {}
 
     /**
@@ -140,20 +144,22 @@ public:
         // get camera intrinsic and extrinsic parameters form pipeline and set to point cloud filter
         auto cameraParam = pipeline.getCameraParam();
         depthPCF.setCameraParam(cameraParam);
-        colorPCF.setCameraParam(cameraParam);
+        // colorPCF.setCameraParam(cameraParam);
 
         // Setting Callbacks
         depthPCF.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
             this->depthCloud = convertFrameToPointCloud(frame);
             std::cout << "Processed Depth Frame Callback" << std::endl;
         });
+        /*
         colorPCF.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
             this->colorFrame = frame;
             std::cout << "Processed Color Frame Callback" << std::endl;
         });
+        */
 
         // Setting the point formats
-        colorPCF.setCreatePointFormat(OB_FORMAT_RGB_POINT);
+        // colorPCF.setCreatePointFormat(OB_FORMAT_RGB_POINT);
         depthPCF.setCreatePointFormat(OB_FORMAT_POINT);
 
         /*
@@ -291,6 +297,7 @@ public:
         const float DEFAULT = -1.0f;
         float depthValueScale = DEFAULT;
         int index = 0;
+        // this->haveDepth = false; Only run this once to configure the cloud
         while (!this->haveDepth) {
             auto fs = pipeline.waitForFrames(1000);
             if (fs == nullptr) continue;
@@ -314,7 +321,7 @@ public:
             }
         }
 
-        while (this->depthFrame == nullptr) {
+        while (this->depthCloud == nullptr) {
             // Busy waiting for the async to process, this is bad practice but temporary
         }
         
@@ -371,11 +378,13 @@ public:
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
         if (color) {
             if (depth2color) {
-                std::cout << "Depth 2 Color" << std::endl;       
-                cloud = prepare_cloud_RGBD_D2C(depthFrame);
+                std::cout << "Depth 2 Color" << std::endl; 
+                throw new std::runtime_error("Not implemented D2C");      
+                // cloud = prepare_cloud_RGBD_D2C(depthFrame);
             } else {
                 std::cout << "Color 2 Depth" << std::endl;    
-                cloud = prepare_cloud_RGBD_C2D(colorFrame);
+                throw new std::runtime_error("Not implemented D2C");      
+                // cloud = prepare_cloud_RGBD_C2D(colorFrame);
             }
         } else {
             std::cout << "Depth Only" << std::endl;    
@@ -404,15 +413,13 @@ public:
     }
 
 private:
-    ob::Pipeline pipeline;
     std::mutex frameMutex;  // Mutex for locking the frames
     // Two point cloud filters for depth and color
-    ob::PointCloudFilter depthPCF;
-    ob::PointCloudFilter colorPCF;
+    // ob::PointCloudFilter colorPCF;
     // Processed frames for the point clouds
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr depthCloud;
-    std::shared_ptr<ob::Frame> depthFrame;
-    std::shared_ptr<ob::Frame> colorFrame;
+    // std::shared_ptr<ob::Frame> depthFrame;
+    // std::shared_ptr<ob::Frame> colorFrame;
     // Flags to indicate if the frames are processed, used for more immediate feedback than the callback
     bool haveColor = false;
     bool haveDepth = false;
@@ -498,7 +505,12 @@ private:
 
         // Defining a new PCL point cloud with the right size
         //pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>(numValidPoints, 1));
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>(cloud_width, cloud_height));  // Trying to push into a default initialization
+        // Making a dense, unorganized point cloud with the right size
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>(numValidPoints, 1)); // Trying to push into a default initialization
+        pcl_cloud->points.resize(numValidPoints);
+        pcl_cloud->width = static_cast<uint32_t>(numValidPoints);
+        pcl_cloud->height = 1;
+        pcl_cloud->is_dense = true;
         // pcl_cloud->is_dense = true; // We're filtering out the invalid points
         //pcl_cloud->points.resize(numValidPoints);
 
@@ -520,10 +532,15 @@ private:
         }
 
         std::cout << "Number of points added: " << j << std::endl;
+        if (pcl_cloud->width != j || pcl_cloud->height != 1) {
+            throw new std::runtime_error("Invalid point cloud size!");
+        }
+        /*
         if (j != cloud_width * cloud_height) pcl_cloud->points.resize(j);
         pcl_cloud->height = 1;
         pcl_cloud->width = j;
         pcl_cloud->is_dense = true;
+        */
         std::cout << "Cloud Size:  " << pcl_cloud->size() << std::endl;
 
         /*
