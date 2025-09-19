@@ -110,7 +110,7 @@ public:
         // Attempting to only run once, then deallocate
         shut_down();
 
-        return cloud;
+        return createColorfulPointCloud(1000);
     }
 
     void release() {
@@ -323,6 +323,38 @@ private:
 
         std::cout << "Cloud Size:  " << pcl_cloud->size() << std::endl;
         return pcl_cloud;
+    }
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr createColorfulPointCloud(int num_points = 1000) {
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+        
+        cloud->width = num_points;
+        cloud->height = 1;
+        cloud->is_dense = true;
+        cloud->points.reserve(num_points);
+        
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_real_distribution<float> dist(-10.0f, 10.0f);
+        std::uniform_int_distribution<uint8_t> color_dist(0, 255);
+        
+        for (int i = 0; i < num_points; ++i) {
+            pcl::PointXYZRGB point;
+            
+            // Random coordinates
+            point.x = dist(gen);
+            point.y = dist(gen);
+            point.z = dist(gen);
+            
+            // Random colors
+            point.r = color_dist(gen);
+            point.g = color_dist(gen);
+            point.b = color_dist(gen);
+            
+            cloud->points.push_back(point);
+        }
+        
+        return cloud;
     }
 };
 
