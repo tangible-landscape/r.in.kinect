@@ -101,7 +101,7 @@ public:
             if (!depthCloudQueue.empty()) {
                 std::cout << "Got depth cloud!" << std::endl;
                 cloud = depthCloudQueue.front();
-                depthCloudQueue.pop_front();
+                // depthCloudQueue.pop_front();  Maybe this is the issue?
             } else {
                 std::runtime_error("No, cloud found; program terminated early");
             }
@@ -198,7 +198,7 @@ private:
                 depthProfileList = pipeline.getStreamProfileList(OB_SENSOR_DEPTH);
             }
 
-            if(depthProfileList->count() > 0) {
+            if (depthProfileList->count() > 0) {
                 std::shared_ptr<ob::StreamProfile> depthProfile;
                 try {
                     // Select the profile with the same frame rate as color.
@@ -294,33 +294,32 @@ private:
         }
 
         std::cout << "Num Valid Points: " << numValidPoints << std::endl;
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>(numValidPoints, 1)); // Trying to push into a default initialization
-        pcl_cloud->points.resize(numValidPoints);
-        pcl_cloud->width = static_cast<uint32_t>(numValidPoints);
-        pcl_cloud->height = 1;
-        pcl_cloud->is_dense = true;
-
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
+        // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>()); // Trying to push into a default initialization
+        pcl_cloud->points.reserve(numValidPoints);
         std::cout << "Point Cloud Length: " << length << std::endl;
 
         bool hasColor = false;
         // Copying the Frame data into the new point cloud
         uint32_t j = 0;  // index for the PCL point cloud
         for (size_t i = 0; i < length; i++) {
-            if (std::abs(points[i].x) != 0 && std::abs(points[i].y) != 0 && std::abs(points[i].z) != 0) {
-                pcl_cloud->points[j].x = points[i].x / 1000.0;
-                pcl_cloud->points[j].y = points[i].y / 1000.0;
-                pcl_cloud->points[j].z = points[i].z / 1000.0;
-                pcl_cloud->points[j].r = 0; // hasColor ? points[i].r : 0;
-                pcl_cloud->points[j].g = 0; // hasColor ? points[i].g : 0;
-                pcl_cloud->points[j].b = 0; // hasColor ? points[i].b : 0;
-                j++;
-            }
+        if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
+            pcl_cloud->points.push_back(pcl::PointXYZRGB(
+                static_cast<float>(points[i].x / 1000.0),
+                static_cast<float>(points[i].y / 1000.0),
+                static_cast<float>(points[i].z / 1000.0),
+                static_cast<std::uint8_t>(0),
+                static_cast<std::uint8_t>(0),
+                static_cast<std::uint8_t>(0)
+            ));
         }
+    }
 
-        std::cout << "Number of points added: " << j << std::endl;
-        if (pcl_cloud->width != j || pcl_cloud->height != 1) {
-            throw new std::runtime_error("Invalid point cloud size!");
+        if (pcl_cloud->points.size() != pcl_cloud->height * pcl_cloud->width) {
+            pcl_cloud->height = static_cast<std::uint32_t>(1);
+            pcl_cloud->width = static_cast<std::uint32_t>(pcl_cloud->points.size());
         }
+        pcl_cloud->is_dense = true;
 
         std::cout << "Cloud Size:  " << pcl_cloud->size() << std::endl;
         return pcl_cloud;
