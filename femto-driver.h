@@ -1,16 +1,17 @@
 #ifndef K4ADRIVER_H
 #define K4ADRIVER_H
 
-extern "C" {
-    #include <grass/gis.h>
-    #include <grass/glocale.h>
-}
-
-#include <k4a/k4a.h> // no longer necesary for this header file
-
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 // #include <pcl/visualization/cloud_viewer.h>
+
+extern "C" {
+    #include <grass/gis.h>
+    #include <grass/glocale.h>
+    #undef n_  // Fixing a macro collision with PCL
+}
+
+#include <k4a/k4a.h> // no longer necesary for this header file
 
 #include <string>
 #include <iostream>
@@ -21,6 +22,7 @@ extern "C" {
 #include <thread>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 
 // New include statements for new Orbbec SDK
 #include "libobsensor/ObSensor.hpp"
