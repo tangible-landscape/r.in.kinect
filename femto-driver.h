@@ -27,12 +27,6 @@ extern "C" {
 
 // New include statements for new Orbbec SDK
 #include "libobsensor/ObSensor.hpp"
-/*
-#include "libobsensor/hpp/Utils.hpp"
-#include "libobsensor/h/ObTypes.h"
-#include "libobsensor/hpp/Pipeline.hpp"
-#include "libobsensor/hpp/Error.hpp"
-*/
 
 // Mapping from Sensor Type to Enabled Stream
 OBStreamType SensorTypeToStreamType(OBSensorType sensorType) {
@@ -58,7 +52,7 @@ OBStreamType SensorTypeToStreamType(OBSensorType sensorType) {
 
 class K4ADriver {
 public:
-    const long unsigned int MAX_DEPTH_QUEUE_SIZE = 4;  // Max number of clouds stored in depthCloudQueue
+    const long unsigned int MAX_QUEUE_SIZE = 2;  // Max number of clouds stored in depthCloudQueue
     const int FRAME_WAIT_TIME = 1000;  // Max number of ms to wait for a frame before refreshing
 
     K4ADriver() : running(false) {}
@@ -123,7 +117,7 @@ public:
             std::unique_lock<std::mutex> lock(depthQueueMutex);
 
             // Defining a wait condition for the depth cloud, if we get a depth cloud or thread is killed
-            depthCloudEmpty.wait(lock, [this] {
+            depthQueueEmpty.wait(lock, [this] {
                 return !depthCloudQueue.empty() || !running.load();
             });
 
@@ -148,23 +142,26 @@ public:
      */
     void shut_down() {
         running.store(false);
-        depthCloudEmpty.notify_one();  // Waking up the depth cloud
+        depthQueueEmpty.notify_one();  // Waking up the depth cloud
         if (converter.joinable()) converter.join();
     }
 
 private:
-    // This is the only queue for now, probably add more queues in the future for different cloud types
-    std::mutex depthQueueMutex;  // Mutex for locking the queue of point clouds
+    // Mutexes for locking the point cloud queues
+    std::mutex depthQueueMutex;
     std::mutex d2cQueueMutex;
     std::mutex c2dQueueMutex;
+    // Queues for storing the point clouds for each type
     std::deque<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> depthCloudQueue;
     std::deque<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> d2cCloudQueue;
     std::deque<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> c2dCloudQueue;
-    std::atomic<bool> running;  // Thread-safe running variable
-    std::thread converter;  // The thread for converting all the clouds
-    std::condition_variable depthCloudEmpty;
+    // Conditions for signaling when a cloud enters the queue
+    std::condition_variable depthQueueEmpty;
     std::condition_variable d2cQueueEmpty;
     std::condition_variable c2dQueueEmpty;
+
+    std::atomic<bool> running;  // Thread-safe running variable
+    std::thread converter;  // The thread for converting all the clouds
 
     /**
      * Runs a thread that converts frames from the Femto-Bolt to point clouds and stores them
@@ -175,7 +172,8 @@ private:
 
         converter = std::thread([this]() {
             ob::Pipeline pipeline;
-            ob::PointCloudFilter depthPCF;  // Make different filters or ob::Align's later
+            // Using a single filter, just change the output mode to Depth or Depth + RGB
+            ob::PointCloudFilter pointCloudFilter;
 
             std::shared_ptr<ob::Align> d2cAlign = std::make_shared<ob::Align>(OB_STREAM_COLOR);
             std::shared_ptr<ob::Align> c2dAlign = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
@@ -260,32 +258,34 @@ private:
 
             // get camera intrinsic and extrinsic parameters form pipeline and set to point cloud filter
             auto cameraParam = pipeline.getCameraParam();
-            depthPCF.setCameraParam(cameraParam);
+            pointCloudFilter.setCameraParam(cameraParam);
 
+            // No longer necessary to set callbacks, everything done synchonously
+            /*
             // Setting Callbacks
-            depthPCF.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
+            pointCloudFilter.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
                 const auto pcl_cloud = convertFrameToPointCloud(frame);
                 
                 if (pcl_cloud != nullptr) {
                     std::lock_guard<std::mutex> lock(depthQueueMutex);  // Locking the queue for the duration of the context
-                    if (depthCloudQueue.size() >= MAX_DEPTH_QUEUE_SIZE) {
+                    if (depthCloudQueue.size() >= MAX_QUEUE_SIZE) {
                         depthCloudQueue.pop_front();
                     }
                     depthCloudQueue.push_back(pcl_cloud);
-                    depthCloudEmpty.notify_one();
+                    depthQueueEmpty.notify_one();
                     std::cout << "Processed Depth Frame Callback" << std::endl;
                 } else {
                     std::runtime_error("Converted Depth PCL cloud is NULL");
                 }
             });
-            depthPCF.setCreatePointFormat(OB_FORMAT_POINT);
+            pointCloudFilter.setCreatePointFormat(OB_FORMAT_POINT);
 
             d2cAlign->setCallBack([this](std::shared_ptr<ob::Frame> frame) {
                 const auto pcl_cloud = convertFrameToPointCloud(frame);
 
                 if (pcl_cloud != nullptr) {
                     std::lock_guard<std::mutex> lock(d2cQueueMutex);
-                    if (d2cCloudQueue.size() >= MAX_DEPTH_QUEUE_SIZE) {
+                    if (d2cCloudQueue.size() >= MAX_QUEUE_SIZE) {
                         d2cCloudQueue.pop_front();
                     }
                     d2cCloudQueue.push_back(pcl_cloud);
@@ -301,7 +301,7 @@ private:
 
                 if (pcl_cloud != nullptr) {
                     std::lock_guard<std::mutex> lock(c2dQueueMutex);
-                    if (c2dCloudQueue.size() >= MAX_DEPTH_QUEUE_SIZE) {
+                    if (c2dCloudQueue.size() >= MAX_QUEUE_SIZE) {
                         c2dCloudQueue.pop_front();
                     }
                     c2dCloudQueue.push_back(pcl_cloud);
@@ -311,26 +311,70 @@ private:
                     std::runtime_error("Converted C2D PCL Cloud is NULL");
                 }
             });
+            */
 
             // Getting the frames and making the point clouds
-            float depthValueScale = FLT_MAX;
+            float depthValueScale;
             while (running.load()) {
                 auto fs = pipeline.waitForFrames(FRAME_WAIT_TIME);
                 if (fs == nullptr) continue;
-                
-                if (fs->depthFrame() != nullptr) {
-                    std::cout << "Grabbing a depth frame" << std::endl;
-                    auto depthValueScale = fs->depthFrame()->getValueScale();
-                    depthPCF.setPositionDataScaled(depthValueScale);
-                    depthPCF.pushFrame(fs);  // Gets put in the queue when the callback hits
 
-                    d2cAlign->pushFrame(fs);
-                }
+                // Enforcing frame synchronization, so frames should be together
+                // Trying synchronous methods first
+                if (fs->depthFrame() != nullptr && fs->colorFrame() != nullptr) {
+                    depthValueScale = fs->depthFrame()->getValueScale();
+                    pointCloudFilter.setPositionDataScaled(depthValueScale);
 
-                if (fs->colorFrame() != nullptr && depthValueScale != FLT_MAX) {
-                    std::cout << "Grabbing a color frame" << std::endl;
+                    // Alignment processing
+                    auto depth_aligned = d2cAlign->process(fs);
+                    auto c2d_aligned = c2dAlign->process(fs);
+                    auto d2c_aligned = d2cAlign->process(fs);
+                                        
+                    // Depth
+                    pointCloudFilter.setCreatePointFormat(OB_FORMAT_POINT);
+                    auto depth_cloud = pointCloudFilter.process(depth_aligned);
+                    if (depth_cloud != nullptr) {
+                        std::lock_guard<std::mutex> lock(depthQueueMutex);
+                        if (depthCloudQueue.size() >= MAX_QUEUE_SIZE) {
+                            depthCloudQueue.pop_front();
+                        }
+                        depthCloudQueue.push_back(convertFrameToPointCloud(depth_cloud));
+                        depthQueueEmpty.notify_one();
+                        std::cout << "Processed Depth Cloud" << std::endl;
+                    } else {
+                        throw std::runtime_error("Processed Depth Cloud was NULL");
+                    }
 
-                    c2dAlign->pushFrame(fs);
+                    // C2D - Currently unsupported by the align tool
+                    /*
+                    pointCloudFilter.setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                    auto c2d_cloud = pointCloudFilter.process(c2d_aligned);
+                    if (c2d_cloud != nullptr) {
+                        std::lock_guard<std::mutex> lock(c2dQueueMutex);
+                        if (c2dCloudQueue.size() >= MAX_QUEUE_SIZE) {
+                            c2dCloudQueue.pop_front();
+                        }
+                        c2dCloudQueue.push_back(convertFrameToPointCloud(c2d_cloud));
+                        c2dQueueEmpty.notify_one();
+                        std::cout << "Processed Color to Depth Cloud" << std::endl;
+                    } else {
+                        throw std::runtime_error("Processed C2D Cloud was NULL");
+                    }
+                    */
+
+                    // D2C
+                    auto d2c_cloud = pointCloudFilter.process(d2c_aligned);
+                    if (d2c_cloud != nullptr) {
+                        std::lock_guard<std::mutex> lock(d2cQueueMutex);
+                        if (d2cCloudQueue.size() >= MAX_QUEUE_SIZE) {
+                            d2cCloudQueue.pop_front();
+                        }
+                        d2cCloudQueue.push_back(convertFrameToPointCloud(d2c_cloud));
+                        d2cQueueEmpty.notify_one();
+                        std::cout << "Processed Depth to Color Cloud" << std::endl;
+                    } else {
+                        throw std::runtime_error("Processed D2C Cloud was NULL");
+                    }
                 }
             }
 
