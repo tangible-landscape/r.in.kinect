@@ -27,10 +27,12 @@ extern "C" {
 
 // New include statements for new Orbbec SDK
 #include "libobsensor/ObSensor.hpp"
+/*
 #include "libobsensor/hpp/Utils.hpp"
 #include "libobsensor/h/ObTypes.h"
 #include "libobsensor/hpp/Pipeline.hpp"
 #include "libobsensor/hpp/Error.hpp"
+*/
 
 // Mapping from Sensor Type to Enabled Stream
 OBStreamType SensorTypeToStreamType(OBSensorType sensorType) {
@@ -251,6 +253,7 @@ private:
                 config->enableStream(depthProfile);
             }
             config->setAlignMode(alignMode);
+            config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
 
             // start pipeline with config
             pipeline.start(config);
