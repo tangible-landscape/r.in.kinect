@@ -351,7 +351,7 @@ private:
             if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
                 pcl_cloud->points.push_back(pcl::PointXYZRGB(
                     static_cast<float>(points[i].x / 1000.0),
-                    static_cast<float>(points[i].y / 1000.0),
+                    static_cast<float>(-points[i].y / 1000.0),
                     static_cast<float>(points[i].z / 1000.0),
                     static_cast<std::uint8_t>(hasColor ? colorPoints[i].r : 0),
                     static_cast<std::uint8_t>(hasColor ? colorPoints[i].g : 0),
