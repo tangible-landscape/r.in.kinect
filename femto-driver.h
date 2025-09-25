@@ -28,28 +28,6 @@ extern "C" {
 // New include statements for new Orbbec SDK
 #include "libobsensor/ObSensor.hpp"
 
-// Mapping from Sensor Type to Enabled Stream
-OBStreamType SensorTypeToStreamType(OBSensorType sensorType) {
-    switch(sensorType) {
-    case OB_SENSOR_COLOR:
-        return OB_STREAM_COLOR;
-    case OB_SENSOR_DEPTH:
-        return OB_STREAM_DEPTH;
-    case OB_SENSOR_IR:
-        return OB_STREAM_IR;
-    case OB_SENSOR_IR_LEFT:
-        return OB_STREAM_IR_LEFT;
-    case OB_SENSOR_IR_RIGHT:
-        return OB_STREAM_IR_RIGHT;
-    case OB_SENSOR_GYRO:
-        return OB_STREAM_GYRO;
-    case OB_SENSOR_ACCEL:
-        return OB_STREAM_ACCEL;
-    default:
-        return OB_STREAM_UNKNOWN;
-    }
-}
-
 class K4ADriver {
 public:
     const long unsigned int MAX_QUEUE_SIZE = 2;  // Max number of clouds stored in depthCloudQueue
@@ -194,7 +172,8 @@ private:
                     auto profile = colorProfiles->getProfile(OB_PROFILE_DEFAULT);
                     colorProfile = profile->as<ob::VideoStreamProfile>();
                 }
-                config->enableStream(colorProfile);
+                config->enableVideoStream(OB_SENSOR_COLOR, OB_WIDTH_ANY, OB_HEIGHT_ANY, OB_FPS_ANY,
+                                            OB_FORMAT_BGR);
             }
             catch(ob::Error &e) {
                 config->setAlignMode(ALIGN_DISABLE);
@@ -251,6 +230,8 @@ private:
                 config->enableStream(depthProfile);
             }
             config->setAlignMode(alignMode);
+
+            // Essential for frame alignment
             config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
 
             // start pipeline with config
@@ -259,59 +240,6 @@ private:
             // get camera intrinsic and extrinsic parameters form pipeline and set to point cloud filter
             auto cameraParam = pipeline.getCameraParam();
             pointCloudFilter.setCameraParam(cameraParam);
-
-            // No longer necessary to set callbacks, everything done synchonously
-            /*
-            // Setting Callbacks
-            pointCloudFilter.setCallBack([this](std::shared_ptr<ob::Frame> frame) {
-                const auto pcl_cloud = convertFrameToPointCloud(frame);
-                
-                if (pcl_cloud != nullptr) {
-                    std::lock_guard<std::mutex> lock(depthQueueMutex);  // Locking the queue for the duration of the context
-                    if (depthCloudQueue.size() >= MAX_QUEUE_SIZE) {
-                        depthCloudQueue.pop_front();
-                    }
-                    depthCloudQueue.push_back(pcl_cloud);
-                    depthQueueEmpty.notify_one();
-                    std::cout << "Processed Depth Frame Callback" << std::endl;
-                } else {
-                    std::runtime_error("Converted Depth PCL cloud is NULL");
-                }
-            });
-            pointCloudFilter.setCreatePointFormat(OB_FORMAT_POINT);
-
-            d2cAlign->setCallBack([this](std::shared_ptr<ob::Frame> frame) {
-                const auto pcl_cloud = convertFrameToPointCloud(frame);
-
-                if (pcl_cloud != nullptr) {
-                    std::lock_guard<std::mutex> lock(d2cQueueMutex);
-                    if (d2cCloudQueue.size() >= MAX_QUEUE_SIZE) {
-                        d2cCloudQueue.pop_front();
-                    }
-                    d2cCloudQueue.push_back(pcl_cloud);
-                    d2cQueueEmpty.notify_one();
-                    std::cout << "Processed D2C Frame Callback" << std::endl;
-                } else {
-                    std::runtime_error("Converted D2C PCL Cloud is NULL");
-                }
-            });
-
-            c2dAlign->setCallBack([this](std::shared_ptr<ob::Frame> frame) {
-                const auto pcl_cloud = convertFrameToPointCloud(frame);
-
-                if (pcl_cloud != nullptr) {
-                    std::lock_guard<std::mutex> lock(c2dQueueMutex);
-                    if (c2dCloudQueue.size() >= MAX_QUEUE_SIZE) {
-                        c2dCloudQueue.pop_front();
-                    }
-                    c2dCloudQueue.push_back(pcl_cloud);
-                    c2dQueueEmpty.notify_one();
-                    std::cout << "Processed C2D Frame Callback" << std::endl;
-                } else {
-                    std::runtime_error("Converted C2D PCL Cloud is NULL");
-                }
-            });
-            */
 
             // Getting the frames and making the point clouds
             float depthValueScale;
@@ -327,7 +255,7 @@ private:
 
                     // Alignment processing
                     auto depth_aligned = d2cAlign->process(fs);
-                    auto c2d_aligned = c2dAlign->process(fs);
+                    auto c2d_aligned = c2dAlign->process(fs);  //<-- Currently unsupported
                     auto d2c_aligned = d2cAlign->process(fs);
                                         
                     // Depth
@@ -346,7 +274,6 @@ private:
                     }
 
                     // C2D - Currently unsupported by the align tool
-                    /*
                     pointCloudFilter.setCreatePointFormat(OB_FORMAT_RGB_POINT);
                     auto c2d_cloud = pointCloudFilter.process(c2d_aligned);
                     if (c2d_cloud != nullptr) {
@@ -360,7 +287,6 @@ private:
                     } else {
                         throw std::runtime_error("Processed C2D Cloud was NULL");
                     }
-                    */
 
                     // D2C
                     auto d2c_cloud = pointCloudFilter.process(d2c_aligned);
@@ -444,38 +370,6 @@ private:
 
         std::cout << "Cloud Size:  " << pcl_cloud->size() << std::endl;
         return pcl_cloud;
-    }
-
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr createColorfulPointCloud(int num_points = 1000) {
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
-        
-        cloud->width = num_points;
-        cloud->height = 1;
-        cloud->is_dense = true;
-        cloud->points.reserve(num_points);
-        
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_real_distribution<float> dist(-10.0f, 10.0f);
-        std::uniform_int_distribution<uint8_t> color_dist(0, 255);
-        
-        for (int i = 0; i < num_points; ++i) {
-            pcl::PointXYZRGB point;
-            
-            // Random coordinates
-            point.x = dist(gen);
-            point.y = dist(gen);
-            point.z = dist(gen);
-            
-            // Random colors
-            point.r = color_dist(gen);
-            point.g = color_dist(gen);
-            point.b = color_dist(gen);
-            
-            cloud->points.push_back(point);
-        }
-        
-        return cloud;
     }
 };
 
