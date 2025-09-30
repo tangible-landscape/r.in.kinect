@@ -241,6 +241,21 @@ private:
             auto cameraParam = pipeline.getCameraParam();
             pointCloudFilter.setCameraParam(cameraParam);
 
+            // Looking into the recommended filters for the point cloud
+            /*
+            auto device = pipeline.getDevice();
+            auto sensor = device->getSensor(OB_SENSOR_DEPTH);
+            auto filterList = sensor->createRecommendedFilters();
+            auto special_filter = filterList[2];
+            special_filter->enable(true);
+            std::cout << special_filter->getName() << std::endl;
+
+            Unsupported:
+            0: Decimation filter
+            1: Spatial Filter
+            2: Temporal Filter
+            */
+
             // Getting the frames and making the point clouds
             float depthValueScale;
             while (running.load()) {
@@ -255,7 +270,7 @@ private:
 
                     // Alignment processing
                     std::shared_ptr<ob::Frame> depth_aligned = d2cAlign->process(fs);
-                    std::shared_ptr<ob::Frame> c2d_aligned = c2dAlign->process(fs);  //<-- Currently unsupported
+                    std::shared_ptr<ob::Frame> c2d_aligned = c2dAlign->process(fs);
                     std::shared_ptr<ob::Frame> d2c_aligned = d2cAlign->process(fs);
                                         
                     // Depth
@@ -281,7 +296,7 @@ private:
                         if (c2dCloudQueue.size() >= MAX_QUEUE_SIZE) {
                             c2dCloudQueue.pop_front();
                         }
-                        c2dCloudQueue.push_back(convertFrameToPointCloud(c2d_cloud, true));  // Changed from true
+                        c2dCloudQueue.push_back(convertFrameToPointCloud(c2d_cloud, true));
                         c2dQueueEmpty.notify_one();
                         std::cout << "Processed Color to Depth Cloud" << std::endl;
                     } else {
@@ -335,20 +350,9 @@ private:
             length = ob_points->dataSize() / sizeof(OBPoint);
         }
 
-        // Counting the number of valid points
+        // Initializing the point cloud
         static const double epsilon = 1e-6;  // Threshold for distance calculation
-        /*
-        long long int numValidPoints = 0;
-        for (long unsigned int i = 0; i < length; i++) {
-            if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
-                numValidPoints++;
-            }
-        }
-        */
-
-        // std::cout << "Num Valid Points: " << numValidPoints << std::endl;
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
-        // pcl_cloud->points.reserve(numValidPoints);
         std::cout << "Point Cloud Length: " << length << std::endl;
 
         // Copying the Frame data into the new point cloud
