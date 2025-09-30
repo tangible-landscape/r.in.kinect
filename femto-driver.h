@@ -254,13 +254,13 @@ private:
                     pointCloudFilter.setPositionDataScaled(depthValueScale);
 
                     // Alignment processing
-                    auto depth_aligned = d2cAlign->process(fs);
-                    auto c2d_aligned = c2dAlign->process(fs);  //<-- Currently unsupported
-                    auto d2c_aligned = d2cAlign->process(fs);
+                    std::shared_ptr<ob::Frame> depth_aligned = d2cAlign->process(fs);
+                    std::shared_ptr<ob::Frame> c2d_aligned = c2dAlign->process(fs);  //<-- Currently unsupported
+                    std::shared_ptr<ob::Frame> d2c_aligned = d2cAlign->process(fs);
                                         
                     // Depth
                     pointCloudFilter.setCreatePointFormat(OB_FORMAT_POINT);
-                    auto depth_cloud = pointCloudFilter.process(depth_aligned);
+                    std::shared_ptr<ob::Frame> depth_cloud = pointCloudFilter.process(depth_aligned);
                     if (depth_cloud != nullptr) {
                         std::lock_guard<std::mutex> lock(depthQueueMutex);
                         if (depthCloudQueue.size() >= MAX_QUEUE_SIZE) {
@@ -275,13 +275,13 @@ private:
 
                     // C2D - Currently unsupported by the align tool
                     pointCloudFilter.setCreatePointFormat(OB_FORMAT_RGB_POINT);
-                    auto c2d_cloud = pointCloudFilter.process(c2d_aligned);
+                    std::shared_ptr<ob::Frame> c2d_cloud = pointCloudFilter.process(c2d_aligned);
                     if (c2d_cloud != nullptr) {
                         std::lock_guard<std::mutex> lock(c2dQueueMutex);
                         if (c2dCloudQueue.size() >= MAX_QUEUE_SIZE) {
                             c2dCloudQueue.pop_front();
                         }
-                        c2dCloudQueue.push_back(convertFrameToPointCloud(c2d_cloud, true));
+                        c2dCloudQueue.push_back(convertFrameToPointCloud(c2d_cloud, true));  // Changed from true
                         c2dQueueEmpty.notify_one();
                         std::cout << "Processed Color to Depth Cloud" << std::endl;
                     } else {
@@ -289,7 +289,7 @@ private:
                     }
 
                     // D2C
-                    auto d2c_cloud = pointCloudFilter.process(d2c_aligned);
+                    std::shared_ptr<ob::Frame> d2c_cloud = pointCloudFilter.process(d2c_aligned);
                     if (d2c_cloud != nullptr) {
                         std::lock_guard<std::mutex> lock(d2cQueueMutex);
                         if (d2cCloudQueue.size() >= MAX_QUEUE_SIZE) {
@@ -324,39 +324,60 @@ private:
 
         // Grabbing the points and the data from the Frame
         auto ob_points = ob_frame->as<ob::PointsFrame>();
-        OBPoint *points = (OBPoint *) ob_points->data();
-        auto length = ob_points->dataSize() / sizeof(OBPoint);
-
-        // Defining color points if we need color, otherwise colorPoints is nullptr
         OBColorPoint *colorPoints;
-        if (hasColor) colorPoints = (OBColorPoint *) ob_points->data();
+        OBPoint *points;
+        int length = 0;
+        if (hasColor) {
+            colorPoints = (OBColorPoint *) ob_points->data();
+            length = ob_points->dataSize() / sizeof(OBColorPoint);
+        } else {
+            points = (OBPoint *) ob_points->data();
+            length = ob_points->dataSize() / sizeof(OBPoint);
+        }
 
         // Counting the number of valid points
         static const double epsilon = 1e-6;  // Threshold for distance calculation
+        /*
         long long int numValidPoints = 0;
         for (long unsigned int i = 0; i < length; i++) {
             if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
                 numValidPoints++;
             }
         }
+        */
 
-        std::cout << "Num Valid Points: " << numValidPoints << std::endl;
+        // std::cout << "Num Valid Points: " << numValidPoints << std::endl;
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
-        pcl_cloud->points.reserve(numValidPoints);
+        // pcl_cloud->points.reserve(numValidPoints);
         std::cout << "Point Cloud Length: " << length << std::endl;
 
         // Copying the Frame data into the new point cloud
         uint32_t j = 0;  // index for the PCL point cloud
-        for (size_t i = 0; i < length; i++) {
-            if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
-                pcl_cloud->points.push_back(pcl::PointXYZRGB(
-                    static_cast<float>(points[i].x / 1000.0),
-                    static_cast<float>(-points[i].y / 1000.0),
-                    static_cast<float>(points[i].z / 1000.0),
-                    static_cast<std::uint8_t>(hasColor ? colorPoints[i].r : 0),
-                    static_cast<std::uint8_t>(hasColor ? colorPoints[i].g : 0),
-                    static_cast<std::uint8_t>(hasColor ? colorPoints[i].b : 0)
-                ));
+        if (hasColor) {
+            for (size_t i = 0; i < length; i++) {
+                if (std::abs(colorPoints[i].x) > epsilon && std::abs(colorPoints[i].y) > epsilon && std::abs(colorPoints[i].z) > epsilon) {
+                    pcl_cloud->points.push_back(pcl::PointXYZRGB(
+                        static_cast<float>(colorPoints[i].x / 1000.0),
+                        static_cast<float>(-colorPoints[i].y / 1000.0),
+                        static_cast<float>(colorPoints[i].z / 1000.0),
+                        static_cast<std::uint8_t>(colorPoints[i].r),
+                        static_cast<std::uint8_t>(colorPoints[i].g),
+                        static_cast<std::uint8_t>(colorPoints[i].b)
+                    ));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < length; i++) {
+                if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
+                    pcl_cloud->points.push_back(pcl::PointXYZRGB(
+                        static_cast<float>(points[i].x / 1000.0),
+                        static_cast<float>(-points[i].y / 1000.0),
+                        static_cast<float>(points[i].z / 1000.0),
+                        static_cast<std::uint8_t>(0),
+                        static_cast<std::uint8_t>(0),
+                        static_cast<std::uint8_t>(0)
+                    ));
+                } 
             }
         }
 
