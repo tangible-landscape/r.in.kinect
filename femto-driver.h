@@ -120,8 +120,15 @@ public:
      */
     void shut_down() {
         running.store(false);
-        depthQueueEmpty.notify_one();  // Waking up the depth cloud
+        // Emptying Queues
+        while (!depthCloudQueue.empty()) depthCloudQueue.pop_front();
+        // depthQueueEmpty.notify_one();
+        while (!c2dCloudQueue.empty()) c2dCloudQueue.pop_front();
+        // c2dQueueEmpty.notify_all();
+        while (!d2cCloudQueue.empty()) d2cCloudQueue.pop_front();
+        // d2cQueueEmpty.notify_all();
         if (converter.joinable()) converter.join();
+        std::exit(0);
     }
 
 private:
@@ -362,7 +369,7 @@ private:
                 if (std::abs(colorPoints[i].x) > epsilon && std::abs(colorPoints[i].y) > epsilon && std::abs(colorPoints[i].z) > epsilon) {
                     // Swapping red and blue to account for some swap somewhere
                     pcl_cloud->points.push_back(pcl::PointXYZRGB(
-                        static_cast<float>(-colorPoints[i].x / 1000.0),
+                        static_cast<float>(colorPoints[i].x / 1000.0),
                         static_cast<float>(colorPoints[i].y / 1000.0),
                         static_cast<float>(colorPoints[i].z / 1000.0),
                         static_cast<std::uint8_t>(colorPoints[i].b),
@@ -375,7 +382,7 @@ private:
             for (size_t i = 0; i < length; i++) {
                 if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
                     pcl_cloud->points.push_back(pcl::PointXYZRGB(
-                        static_cast<float>(-points[i].x / 1000.0),
+                        static_cast<float>(points[i].x / 1000.0),
                         static_cast<float>(points[i].y / 1000.0),
                         static_cast<float>(points[i].z / 1000.0),
                         static_cast<std::uint8_t>(0),
