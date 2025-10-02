@@ -1,17 +1,14 @@
-#ifndef K4ADRIVER_H
-#define K4ADRIVER_H
+#ifndef FEMTODRIVER_H
+#define FEMTODRIVER_H
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-// #include <pcl/visualization/cloud_viewer.h>
 
 extern "C" {
     #include <grass/gis.h>
     #include <grass/glocale.h>
     #undef n_  // Fixing a macro collision with PCL
 }
-
-#include <k4a/k4a.h> // no longer necesary for this header file
 
 #include <string>
 #include <iostream>
@@ -28,17 +25,28 @@ extern "C" {
 // New include statements for new Orbbec SDK
 #include "libobsensor/ObSensor.hpp"
 
-class K4ADriver {
+// Femto Color Resolution integration
+enum femto_color_resolution_t {
+    FEMTO_COLOR_RESOLUTION_ANY = OB_WIDTH_ANY,
+    FEMTO_COLOR_RESOLUTION_720P = 720,
+    FEMTO_COLOR_RESOLUTION_1080P = 1080,
+    FEMTO_COLOR_RESOLUTION_1440P = 1440,
+    FEMTO_COLOR_RESOLUTION_2160P = 2160
+};
+
+class FemtoDriver {
 public:
     const long unsigned int MAX_QUEUE_SIZE = 2;  // Max number of clouds stored in depthCloudQueue
     const int FRAME_WAIT_TIME = 1000;  // Max number of ms to wait for a frame before refreshing
 
-    K4ADriver() : running(false) {}
+    FemtoDriver() : running(false) {}
 
     /**
-     * Start the cloud conversion thread
+     * Start the cloud conversion thread with the specified color resolution
+     * @param resolution the resolution to use for the color camera
      */
-    void initialize() {
+    void initialize(femto_color_resolution_t resolution) {
+        color_resolution = resolution;
         // If the thread function is not started, start it
         if (!running.load()) {
             convertClouds();
@@ -141,6 +149,8 @@ private:
     std::atomic<bool> running;  // Thread-safe running variable
     std::thread converter;  // The thread for converting all the clouds
 
+    femto_color_resolution_t color_resolution;  // Resolution for the color camera
+
     /**
      * Runs a thread that converts frames from the Femto-Bolt to point clouds and stores them
      * in their respective queues
@@ -168,31 +178,30 @@ private:
             try {
                 // Get all stream profiles of the color camera, including stream resolution, frame rate, and frame format
                 auto colorProfiles = pipeline.getStreamProfileList(OB_SENSOR_COLOR);
-                if(colorProfiles) {
+                if (colorProfiles) {
                     auto profile = colorProfiles->getProfile(OB_PROFILE_DEFAULT);
                     colorProfile = profile->as<ob::VideoStreamProfile>();
                 }
-                config->enableVideoStream(OB_SENSOR_COLOR, OB_WIDTH_ANY, OB_HEIGHT_ANY, OB_FPS_ANY,
-                                            OB_FORMAT_BGR);
-            }
-            catch(ob::Error &e) {
+                std::cout << "Width: " << getCameraWidth(color_resolution) << " Height: " << color_resolution << std::endl;
+                config->enableVideoStream(OB_SENSOR_COLOR, getCameraWidth(color_resolution), color_resolution, OB_FPS_ANY,
+                                            OB_FORMAT_RGB);
+            } catch(ob::Error &e) {
                 config->setAlignMode(ALIGN_DISABLE);
-                std::cerr << "Current device is not support color sensor!" << std::endl;
+                std::cerr << "Current device does not support color sensor!" << std::endl;
             }
 
             // Get all stream profiles of the depth camera, including stream resolution, frame rate, and frame format
             std::shared_ptr<ob::StreamProfileList> depthProfileList;
             OBAlignMode                            alignMode = ALIGN_DISABLE;
-            if(colorProfile) {
+            if (colorProfile) {
                 // Try find supported depth to color align hardware mode profile
                 depthProfileList = pipeline.getD2CDepthProfileList(colorProfile, ALIGN_D2C_HW_MODE);
-                if(depthProfileList->count() > 0) {
+                if (depthProfileList->count() > 0) {
                     alignMode = ALIGN_D2C_HW_MODE;
-                }
-                else {
+                } else {
                     // Try find supported depth to color align software mode profile
                     depthProfileList = pipeline.getD2CDepthProfileList(colorProfile, ALIGN_D2C_SW_MODE);
-                    if(depthProfileList->count() > 0) {
+                    if (depthProfileList->count() > 0) {
                         // I'm pretty sure that only this mode is supported on the Femto-Bolt
                         alignMode = ALIGN_D2C_SW_MODE;
                     }
@@ -202,12 +211,10 @@ private:
                     // Enable frame synchronization
                     pipeline.enableFrameSync();
                     std::cout << "Enabled frame sync!" << std::endl;
-                }
-                catch(ob::Error &e) {
+                } catch (ob::Error &e) {
                     std::cerr << "Current device is not support frame sync!" << std::endl;
                 }
-            }
-            else {
+            } else {
                 depthProfileList = pipeline.getStreamProfileList(OB_SENSOR_DEPTH);
             }
 
@@ -215,15 +222,14 @@ private:
                 std::shared_ptr<ob::StreamProfile> depthProfile;
                 try {
                     // Select the profile with the same frame rate as color.
-                    if(colorProfile) {
-                        depthProfile = depthProfileList->getVideoStreamProfile(OB_WIDTH_ANY, OB_HEIGHT_ANY, OB_FORMAT_ANY, colorProfile->fps());
+                    if (colorProfile) {
+                        depthProfile = depthProfileList->getVideoStreamProfile(OB_WIDTH_ANY, OB_HEIGHT_ANY,  OB_FORMAT_ANY, colorProfile->fps());
                     }
-                }
-                catch(...) {
+                } catch(...) {
                     depthProfile = nullptr;
                 }
 
-                if(!depthProfile) {
+                if (!depthProfile) {
                     // If no matching profile is found, select the default profile.
                     depthProfile = depthProfileList->getProfile(OB_PROFILE_DEFAULT);
                 }
@@ -365,9 +371,9 @@ private:
                     point.x = -colorPoints[i].x / 1000.0;
                     point.y = colorPoints[i].y / 1000.0;
                     point.z = -colorPoints[i].z / 1000.0;
-                    point.r = static_cast<std::uint8_t>(colorPoints[i].b);
+                    point.r = static_cast<std::uint8_t>(colorPoints[i].r);
                     point.g = static_cast<std::uint8_t>(colorPoints[i].g);
-                    point.b = static_cast<std::uint8_t>(colorPoints[i].r);
+                    point.b = static_cast<std::uint8_t>(colorPoints[i].b);
                     pcl_cloud->points.push_back(point);
                 }
             }
@@ -396,6 +402,14 @@ private:
         std::cout << "Cloud Size:  " << pcl_cloud->size() << std::endl;
         return pcl_cloud;
     }
+
+    /**
+     * Gets the camera width based on the height using a 16x9 ratio
+     * @param camera_height the height of the camera in pixels
+     */
+    int getCameraWidth(int camera_height) {
+        return (camera_height * 16) / 9;
+    }
 };
 
-#endif // K4ADRIVER_H
+#endif // FEMTODRIVER_H
