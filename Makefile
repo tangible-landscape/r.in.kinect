@@ -13,7 +13,6 @@ EXTRA_INC = $(VECT_INC) -I/usr/local/include/pcl-1.15 -I/usr/include/eigen3 $(OR
 EXTRA_CFLAGS = -Wall -g -std=c++20 -march=native -Wno-deprecated -O0 $(VECT_CFLAGS) $(OMPCFLAGS) -static-libasan
 
 LDFLAGS += -L/usr/local/lib $(ORBBEC_LIB_PATH)
-# Maybe 
 
 include $(MODULE_TOPDIR)/include/Make/Module.make
 
