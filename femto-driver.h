@@ -47,7 +47,7 @@ public:
     const unsigned int FRAME_WAIT_TIME = 1000;
 
     /**
-     * Default constructor, use initialize to init
+     * Default constructor, use the initialize method to init
      */
     FemtoDriver() : running(false) {}
 
@@ -56,11 +56,8 @@ public:
      * @param resolution the resolution to use for the color camera
      */
     void initialize(femto_color_resolution_t resolution) {
+        // Start the thread function when we first need a cloud
         color_resolution = resolution;
-        // If the thread function is not started, start it
-        if (!running.load()) {
-            convertClouds();
-        }
     }
 
     /**
@@ -71,10 +68,10 @@ public:
      * @return the point cloud with the specified parameters
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
-        // Start the thread if the user forgot to call init
+        // Start the cloud processing thread with the specific cloud type
         if (!running.load()) {
-            convertClouds();
-        }        
+            convertClouds(color, depth2color);
+        }
 
         // Checking cloud options
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
@@ -139,7 +136,9 @@ public:
      */
     void shut_down() {
         running.store(false);  // Stopping the thread
-        depthQueueEmpty.notify_one();  // Waking up the depth cloud
+        depthQueueEmpty.notify_one();  // notifying all the threads
+        c2dQueueEmpty.notify_one();
+        d2cQueueEmpty.notify_one();
         if (converter.joinable()) converter.join();
     }
 
@@ -160,171 +159,212 @@ private:
     std::atomic<bool> running;  // Thread-safe running variable
     std::thread converter;  // The thread for converting all the clouds
 
-    femto_color_resolution_t color_resolution;  // Resolution for the color camera
+    femto_color_resolution_t color_resolution = FEMTO_COLOR_RESOLUTION_ANY;  // Resolution for the color camera
 
     /**
      * Runs a thread that converts frames from the Femto-Bolt to point clouds and stores them
      * in their respective queues
      */
-    void convertClouds() {
+    void convertClouds(bool color, bool depth2color) {
         running.store(true);
 
-        converter = std::thread([this]() {
-            ob::Pipeline pipeline;
-            // Using a single filter, just change the output mode to Depth or Depth + RGB
-            ob::PointCloudFilter pointCloudFilter;
+        std::shared_ptr<ob::Pipeline> pipeline;
+        std::shared_ptr<ob::PointCloudFilter> pointCloudFilter;
 
-            // Defining alignment filters, use c2dAlign for depth too
-            std::shared_ptr<ob::Align> d2cAlign = std::make_shared<ob::Align>(OB_STREAM_COLOR);
-            std::shared_ptr<ob::Align> c2dAlign = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
+        // Pipeline and PCF configuration logic
+        ob::Context::setLoggerSeverity(OB_LOG_SEVERITY_WARN);
 
-            // Pipeline and PCF configuration logic
-            ob::Context::setLoggerSeverity(OB_LOG_SEVERITY_WARN);
+        // Configure which streams to enable or disable for the Pipeline by creating a Config
+        std::shared_ptr<ob::Config> config = std::make_shared<ob::Config>();
 
-            // Configure which streams to enable or disable for the Pipeline by creating a Config
-            std::shared_ptr<ob::Config> config = std::make_shared<ob::Config>();
-
-            // Creating the color stream
-            std::shared_ptr<ob::VideoStreamProfile> colorProfile = nullptr;
-            try {
-                // Get all stream profiles of the color camera, including stream resolution, frame rate, and frame format
-                auto colorProfiles = pipeline.getStreamProfileList(OB_SENSOR_COLOR);
-                if (colorProfiles) {
-                    auto profile = colorProfiles->getProfile(OB_PROFILE_DEFAULT);
-                    colorProfile = profile->as<ob::VideoStreamProfile>();
-                }
-                // Creating the video stream with the desired resolution
-                config->enableVideoStream(OB_SENSOR_COLOR, getCameraWidth(color_resolution), color_resolution, OB_FPS_ANY,
-                                            OB_FORMAT_RGB);
-            } catch(ob::Error &e) {
-                config->setAlignMode(ALIGN_DISABLE);
-                std::cerr << "Current device does not support color sensor!" << std::endl;
+        // Creating the color stream
+        std::shared_ptr<ob::VideoStreamProfile> colorProfile = nullptr;
+        try {
+            // Get all stream profiles of the color camera, including stream resolution, frame rate, and frame format
+            auto colorProfiles = pipeline->getStreamProfileList(OB_SENSOR_COLOR);
+            if (colorProfiles) {
+                auto profile = colorProfiles->getProfile(OB_PROFILE_DEFAULT);
+                colorProfile = profile->as<ob::VideoStreamProfile>();
             }
+            // Creating the video stream with the desired resolution
+            config->enableVideoStream(OB_SENSOR_COLOR, getCameraWidth(color_resolution), color_resolution, OB_FPS_ANY,
+                                        OB_FORMAT_RGB);
+        } catch(ob::Error &e) {
+            config->setAlignMode(ALIGN_DISABLE);
+            std::cerr << "Current device does not support color sensor!" << std::endl;
+        }
 
-            // Get all stream profiles of the depth camera, including stream resolution, frame rate, and frame format
-            std::shared_ptr<ob::StreamProfileList> depthProfileList;
-            OBAlignMode alignMode = ALIGN_DISABLE;
-            if (colorProfile) {
-                // Try find supported depth to color align hardware mode profile
-                depthProfileList = pipeline.getD2CDepthProfileList(colorProfile, ALIGN_D2C_HW_MODE);
-                if (depthProfileList->count() > 0) {
-                    alignMode = ALIGN_D2C_HW_MODE;
-                } else {
-                    // Try find supported depth to color align software mode profile
-                    depthProfileList = pipeline.getD2CDepthProfileList(colorProfile, ALIGN_D2C_SW_MODE);
-                    if (depthProfileList->count() > 0) {
-                        // I'm pretty sure that only this mode is supported on the Femto-Bolt
-                        alignMode = ALIGN_D2C_SW_MODE;
-                    }
-                }
-
-                try {
-                    // Enable frame synchronization
-                    pipeline.enableFrameSync();
-                } catch (ob::Error &e) {
-                    std::cerr << "Current device is not support frame sync!" << std::endl;
-                }
-            } else {
-                depthProfileList = pipeline.getStreamProfileList(OB_SENSOR_DEPTH);
-            }
-
-            // Creating the depth stream
+        // Get all stream profiles of the depth camera, including stream resolution, frame rate, and frame format
+        std::shared_ptr<ob::StreamProfileList> depthProfileList;
+        OBAlignMode alignMode = ALIGN_DISABLE;
+        if (colorProfile) {
+            // Try find supported depth to color align hardware mode profile
+            depthProfileList = pipeline->getD2CDepthProfileList(colorProfile, ALIGN_D2C_HW_MODE);
             if (depthProfileList->count() > 0) {
-                std::shared_ptr<ob::StreamProfile> depthProfile;
-                try {
-                    // Select the profile with the same frame rate as color.
-                    if (colorProfile) {
-                        depthProfile = depthProfileList->getVideoStreamProfile(OB_WIDTH_ANY, OB_HEIGHT_ANY,  OB_FORMAT_ANY, colorProfile->fps());
-                    }
-                } catch(...) {
-                    depthProfile = nullptr;
-                }
-
-                if (!depthProfile) {
-                    // If no matching profile is found, select the default profile.
-                    depthProfile = depthProfileList->getProfile(OB_PROFILE_DEFAULT);
-                }
-                config->enableStream(depthProfile);
-            }
-            config->setAlignMode(alignMode);
-
-            // Essential for frame alignment
-            config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
-
-            // start pipeline with config
-            pipeline.start(config);
-
-            // Getting camera parameters from the pipeline to set the point cloud filter
-            auto cameraParam = pipeline.getCameraParam();
-            pointCloudFilter.setCameraParam(cameraParam);
-
-            // Getting the frames and making the point clouds
-            float depthValueScale;
-            while (running.load()) {
-                // Waiting for a non-null frameset
-                auto fs = pipeline.waitForFrames(FRAME_WAIT_TIME);
-                if (fs == nullptr) continue;
-
-                // Frames should be synchronized here
-                if (fs->depthFrame() != nullptr && fs->colorFrame() != nullptr) {
-                    // Setting depth scale for point cloud filter
-                    depthValueScale = fs->depthFrame()->getValueScale();
-                    pointCloudFilter.setPositionDataScaled(depthValueScale);
-
-                    // Alignment processing
-                    std::shared_ptr<ob::Frame> depth_aligned = d2cAlign->process(fs);
-                    std::shared_ptr<ob::Frame> c2d_aligned = c2dAlign->process(fs);
-                    std::shared_ptr<ob::Frame> d2c_aligned = d2cAlign->process(fs);
-                                        
-                    // Depth
-                    pointCloudFilter.setCreatePointFormat(OB_FORMAT_POINT);
-                    std::shared_ptr<ob::Frame> depth_cloud = pointCloudFilter.process(depth_aligned);
-                    if (depth_cloud != nullptr) {
-                        // Locking the queue to insert a new depth point cloud, then notifying
-                        std::lock_guard<std::mutex> lock(depthQueueMutex);
-                        if (depthCloudQueue.size() >= MAX_QUEUE_SIZE) {
-                            depthCloudQueue.pop_front();
-                        }
-                        depthCloudQueue.push_back(convertFrameToPointCloud(depth_cloud, false));
-                        depthQueueEmpty.notify_one();
-                    } else {
-                        throw std::runtime_error("Processed Depth Cloud was NULL");
-                    }
-
-                    // C2D
-                    pointCloudFilter.setCreatePointFormat(OB_FORMAT_RGB_POINT);
-                    std::shared_ptr<ob::Frame> c2d_cloud = pointCloudFilter.process(c2d_aligned);
-                    if (c2d_cloud != nullptr) {
-                        // Locking the queue to insert a new color2depth point cloud, then notifying
-                        std::lock_guard<std::mutex> lock(c2dQueueMutex);
-                        if (c2dCloudQueue.size() >= MAX_QUEUE_SIZE) {
-                            c2dCloudQueue.pop_front();
-                        }
-                        c2dCloudQueue.push_back(convertFrameToPointCloud(c2d_cloud, true));
-                        c2dQueueEmpty.notify_one();
-                    } else {
-                        throw std::runtime_error("Processed C2D Cloud was NULL");
-                    }
-
-                    // D2C
-                    std::shared_ptr<ob::Frame> d2c_cloud = pointCloudFilter.process(d2c_aligned);
-                    if (d2c_cloud != nullptr) {
-                        // Locking the queue to insert a new depth2color point cloud, then notifying
-                        std::lock_guard<std::mutex> lock(d2cQueueMutex);
-                        if (d2cCloudQueue.size() >= MAX_QUEUE_SIZE) {
-                            d2cCloudQueue.pop_front();
-                        }
-                        d2cCloudQueue.push_back(convertFrameToPointCloud(d2c_cloud, true));
-                        d2cQueueEmpty.notify_one();
-                    } else {
-                        throw std::runtime_error("Processed D2C Cloud was NULL");
-                    }
+                alignMode = ALIGN_D2C_HW_MODE;
+            } else {
+                // Try find supported depth to color align software mode profile
+                depthProfileList = pipeline->getD2CDepthProfileList(colorProfile, ALIGN_D2C_SW_MODE);
+                if (depthProfileList->count() > 0) {
+                    // I'm pretty sure that only this mode is supported on the Femto-Bolt
+                    alignMode = ALIGN_D2C_SW_MODE;
                 }
             }
 
-            // Shutting down the pipeline outside of the thread
-            pipeline.stop();
-        });
+            try {
+                // Enable frame synchronization
+                pipeline->enableFrameSync();
+            } catch (ob::Error &e) {
+                std::cerr << "Current device is not support frame sync!" << std::endl;
+            }
+        } else {
+            depthProfileList = pipeline->getStreamProfileList(OB_SENSOR_DEPTH);
+        }
+
+        // Creating the depth stream
+        if (depthProfileList->count() > 0) {
+            std::shared_ptr<ob::StreamProfile> depthProfile;
+            try {
+                // Select the profile with the same frame rate as color.
+                if (colorProfile) {
+                    depthProfile = depthProfileList->getVideoStreamProfile(OB_WIDTH_ANY, OB_HEIGHT_ANY,  OB_FORMAT_ANY, colorProfile->fps());
+                }
+            } catch(...) {
+                depthProfile = nullptr;
+            }
+
+            if (!depthProfile) {
+                // If no matching profile is found, select the default profile.
+                depthProfile = depthProfileList->getProfile(OB_PROFILE_DEFAULT);
+            }
+            config->enableStream(depthProfile);
+        }
+        config->setAlignMode(alignMode);
+
+        // Essential for frame alignment
+        config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
+
+        // Starting the pipeline
+        pipeline->start(config);
+
+        // Setting the filter's camera parameters based on the pipeline
+        pointCloudFilter->setCameraParam(pipeline->getCameraParam());
+
+        if (color) {
+            if (depth2color) {
+                converter = std::thread([this, pipeline, pointCloudFilter]() {
+                    // Depth2Color Thread initialization
+                    std::shared_ptr<ob::Align> align = std::make_shared<ob::Align>(OB_STREAM_COLOR);
+                    pointCloudFilter->setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                    float depthValueScale;
+
+                    while (running.load()) {
+                        // Waiting for a non-null frameset
+                        auto fs = pipeline->waitForFrames(FRAME_WAIT_TIME);
+                        if (fs == nullptr) continue;
+
+                        // Frames should be synchronized here
+                        if (fs->depthFrame() != nullptr && fs->colorFrame() != nullptr) {
+                            // Setting depth scale for point cloud filter
+                            depthValueScale = fs->depthFrame()->getValueScale();
+                            pointCloudFilter->setPositionDataScaled(depthValueScale);
+
+                            // Alignment processing
+                            std::shared_ptr<ob::Frame> d2c_aligned = align->process(fs);
+                            std::shared_ptr<ob::Frame> d2c_cloud = pointCloudFilter->process(d2c_aligned);
+                            if (d2c_cloud != nullptr) {
+                                // Locking the queue to insert a new depth2color point cloud, then notifying
+                                std::lock_guard<std::mutex> lock(d2cQueueMutex);
+                                if (d2cCloudQueue.size() >= MAX_QUEUE_SIZE) {
+                                    d2cCloudQueue.pop_front();
+                                }
+                                d2cCloudQueue.push_back(convertFrameToPointCloud(d2c_cloud, true));
+                                d2cQueueEmpty.notify_one();
+                            } else {
+                                throw std::runtime_error("Processed D2C Cloud was NULL");
+                            }
+                        }
+                    }
+                });
+            } else {
+                converter = std::thread([this, pipeline, pointCloudFilter]() {
+                    // Color2Depth Thread initialization
+                    std::shared_ptr<ob::Align> align = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
+                    pointCloudFilter->setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                    float depthValueScale;
+
+                    while (running.load()) {
+                        // Waiting for a non-null frameset
+                        auto fs = pipeline->waitForFrames(FRAME_WAIT_TIME);
+                        if (fs == nullptr) continue;
+
+                        // Frames should be synchronized here
+                        if (fs->depthFrame() != nullptr && fs->colorFrame() != nullptr) {
+                            // Setting depth scale for point cloud filter
+                            depthValueScale = fs->depthFrame()->getValueScale();
+                            pointCloudFilter->setPositionDataScaled(depthValueScale);
+
+                            // Alignment processing
+                            std::shared_ptr<ob::Frame> c2d_aligned = align->process(fs);
+                            pointCloudFilter->setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                            std::shared_ptr<ob::Frame> c2d_cloud = pointCloudFilter->process(c2d_aligned);
+                            if (c2d_cloud != nullptr) {
+                                // Locking the queue to insert a new color2depth point cloud, then notifying
+                                std::lock_guard<std::mutex> lock(c2dQueueMutex);
+                                if (c2dCloudQueue.size() >= MAX_QUEUE_SIZE) {
+                                    c2dCloudQueue.pop_front();
+                                }
+                                c2dCloudQueue.push_back(convertFrameToPointCloud(c2d_cloud, true));
+                                c2dQueueEmpty.notify_one();
+                            } else {
+                                throw std::runtime_error("Processed C2D Cloud was NULL");
+                            }
+                        }
+                    }
+                });
+            }
+        } else {
+            converter = std::thread([this, pipeline, pointCloudFilter]() {
+                // Depth Thread initialization
+                std::shared_ptr<ob::Align> align = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
+                std::shared_ptr<ob::PointCloudFilter> pointCloudFilter = std::make_shared<ob::PointCloudFilter>();
+                pointCloudFilter->setCreatePointFormat(OB_FORMAT_POINT);
+                float depthValueScale;
+
+                // Depth only thread
+                while (running.load()) {
+                    // Waiting for a non-null frameset
+                    auto fs = pipeline->waitForFrames(FRAME_WAIT_TIME);
+                    if (fs == nullptr) continue;
+
+                    // Frames should be synchronized here
+                    if (fs->depthFrame() != nullptr && fs->colorFrame() != nullptr) {
+                        // Setting depth scale for point cloud filter
+                        depthValueScale = fs->depthFrame()->getValueScale();
+                        pointCloudFilter->setPositionDataScaled(depthValueScale);
+
+                        // Alignment processing
+                        std::shared_ptr<ob::Frame> depth_aligned = align->process(fs);
+                        pointCloudFilter->setCreatePointFormat(OB_FORMAT_POINT);
+                        std::shared_ptr<ob::Frame> depth_cloud = pointCloudFilter->process(depth_aligned);
+                        if (depth_cloud != nullptr) {
+                            // Locking the queue to insert a new depth point cloud, then notifying
+                            std::lock_guard<std::mutex> lock(depthQueueMutex);
+                            if (depthCloudQueue.size() >= MAX_QUEUE_SIZE) {
+                                depthCloudQueue.pop_front();
+                            }
+                            depthCloudQueue.push_back(convertFrameToPointCloud(depth_cloud, false));
+                            depthQueueEmpty.notify_one();
+                        } else {
+                            throw std::runtime_error("Processed Depth Cloud was NULL");
+                        }
+                    }
+                }
+            });
+        }
+
+        // Shutting down the pipeline outside of the thread
+        pipeline->stop();
     }
 
     /**
@@ -358,9 +398,8 @@ private:
         static const double epsilon = 1e-6;  // Threshold for finding invalid points
 
         // Copying the Frame data into the new point cloud
-        uint32_t j = 0;  // index for the PCL point cloud
         if (hasColor) {
-            for (size_t i = 0; i < length; i++) {
+            for (int i = 0; i < length; i++) {
                 if (std::abs(colorPoints[i].x) > epsilon && std::abs(colorPoints[i].y) > epsilon && std::abs(colorPoints[i].z) > epsilon) {
                     // Adjusting the reference frame and copying the color cloud
                     pcl::PointXYZRGB point;
@@ -374,7 +413,7 @@ private:
                 }
             }
         } else {
-            for (size_t i = 0; i < length; i++) {
+            for (int i = 0; i < length; i++) {
                 if (std::abs(points[i].x) > epsilon && std::abs(points[i].y) > epsilon && std::abs(points[i].z) > epsilon) {
                     // Adjusting the reference frame and copying the depth cloud
                     pcl::PointXYZRGB point;
