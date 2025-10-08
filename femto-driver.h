@@ -68,6 +68,11 @@ public:
      * @return the point cloud with the specified parameters
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
+        // If running, shut down before proceeding
+        if (running.load()) {
+            std::cout << "Thread already active, shutting down..." << std::endl;
+            shut_down();
+        }
         // Start the cloud processing thread with the specific cloud type
         if (!running.load()) {
             convertClouds(color, depth2color);
@@ -77,6 +82,7 @@ public:
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
         if (color) {
             if (depth2color) {
+                std::cout << "Waiting on D2C cloud!" << std::endl;
                 // Waiting on a new depth2color point cloud
                 std::unique_lock<std::mutex> lock(d2cQueueMutex);
                 d2cQueueEmpty.wait(lock, [this]{
@@ -136,9 +142,9 @@ public:
      */
     void shut_down() {
         running.store(false);  // Stopping the thread
-        depthQueueEmpty.notify_one();  // notifying all the threads
-        c2dQueueEmpty.notify_one();
-        d2cQueueEmpty.notify_one();
+        depthQueueEmpty.notify_all();  // notifying all the threads
+        c2dQueueEmpty.notify_all();
+        d2cQueueEmpty.notify_all();
         if (converter.joinable()) converter.join();
     }
 
@@ -166,10 +172,10 @@ private:
      * in their respective queues
      */
     void convertClouds(bool color, bool depth2color) {
+        std::cout << "Starting convert clouds with " << color << " " << depth2color << std::endl;
         running.store(true);
 
-        std::shared_ptr<ob::Pipeline> pipeline;
-        std::shared_ptr<ob::PointCloudFilter> pointCloudFilter;
+        std::shared_ptr<ob::Pipeline> pipeline = std::make_shared<ob::Pipeline>();
 
         // Pipeline and PCF configuration logic
         ob::Context::setLoggerSeverity(OB_LOG_SEVERITY_WARN);
@@ -247,37 +253,47 @@ private:
         // Starting the pipeline
         pipeline->start(config);
 
-        // Setting the filter's camera parameters based on the pipeline
-        pointCloudFilter->setCameraParam(pipeline->getCameraParam());
+        std::cout << "Finished initialization" << std::endl;
 
+        // Defining the specific thread function
+        std::function<void(std::shared_ptr<ob::Pipeline>)> convertFunction;
         if (color) {
             if (depth2color) {
-                converter = std::thread([this, pipeline, pointCloudFilter]() {
+                convertFunction = [this](std::shared_ptr<ob::Pipeline> pipeline) {
+                    std::cout << "D2C Thread Started" << std::endl;
                     // Depth2Color Thread initialization
                     std::shared_ptr<ob::Align> align = std::make_shared<ob::Align>(OB_STREAM_COLOR);
-                    pointCloudFilter->setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                    ob::PointCloudFilter pointCloudFilter;
+                    pointCloudFilter.setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                    pointCloudFilter.setCameraParam(pipeline->getCameraParam());
                     float depthValueScale;
 
                     while (running.load()) {
+                        std::cout << "Waiting for frames" << std::endl;
                         // Waiting for a non-null frameset
                         auto fs = pipeline->waitForFrames(FRAME_WAIT_TIME);
                         if (fs == nullptr) continue;
 
                         // Frames should be synchronized here
+                        std::cout << "Got non-null frame" << std::endl;
                         if (fs->depthFrame() != nullptr && fs->colorFrame() != nullptr) {
                             // Setting depth scale for point cloud filter
                             depthValueScale = fs->depthFrame()->getValueScale();
-                            pointCloudFilter->setPositionDataScaled(depthValueScale);
+                            std::cout << "done with value scaling" << std::endl;
+                            pointCloudFilter.setPositionDataScaled(depthValueScale);
 
                             // Alignment processing
+                            std::cout << "Aligning D2C" << std::endl;
                             std::shared_ptr<ob::Frame> d2c_aligned = align->process(fs);
-                            std::shared_ptr<ob::Frame> d2c_cloud = pointCloudFilter->process(d2c_aligned);
+                            std::cout << "Processing D2C" << std::endl;
+                            std::shared_ptr<ob::Frame> d2c_cloud = pointCloudFilter.process(d2c_aligned);
                             if (d2c_cloud != nullptr) {
                                 // Locking the queue to insert a new depth2color point cloud, then notifying
                                 std::lock_guard<std::mutex> lock(d2cQueueMutex);
                                 if (d2cCloudQueue.size() >= MAX_QUEUE_SIZE) {
                                     d2cCloudQueue.pop_front();
                                 }
+                                std::cout << "Pushing D2C" << std::endl;
                                 d2cCloudQueue.push_back(convertFrameToPointCloud(d2c_cloud, true));
                                 d2cQueueEmpty.notify_one();
                             } else {
@@ -285,12 +301,17 @@ private:
                             }
                         }
                     }
-                });
+
+                    pipeline->stop();
+                };
             } else {
-                converter = std::thread([this, pipeline, pointCloudFilter]() {
+                convertFunction = [this](std::shared_ptr<ob::Pipeline> pipeline) {
+                    std::cout << "C2D Thread Started" << std::endl;
                     // Color2Depth Thread initialization
                     std::shared_ptr<ob::Align> align = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
-                    pointCloudFilter->setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                    ob::PointCloudFilter pointCloudFilter;
+                    pointCloudFilter.setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                    pointCloudFilter.setCameraParam(pipeline->getCameraParam());
                     float depthValueScale;
 
                     while (running.load()) {
@@ -302,12 +323,12 @@ private:
                         if (fs->depthFrame() != nullptr && fs->colorFrame() != nullptr) {
                             // Setting depth scale for point cloud filter
                             depthValueScale = fs->depthFrame()->getValueScale();
-                            pointCloudFilter->setPositionDataScaled(depthValueScale);
+                            pointCloudFilter.setPositionDataScaled(depthValueScale);
 
                             // Alignment processing
                             std::shared_ptr<ob::Frame> c2d_aligned = align->process(fs);
-                            pointCloudFilter->setCreatePointFormat(OB_FORMAT_RGB_POINT);
-                            std::shared_ptr<ob::Frame> c2d_cloud = pointCloudFilter->process(c2d_aligned);
+                            pointCloudFilter.setCreatePointFormat(OB_FORMAT_RGB_POINT);
+                            std::shared_ptr<ob::Frame> c2d_cloud = pointCloudFilter.process(c2d_aligned);
                             if (c2d_cloud != nullptr) {
                                 // Locking the queue to insert a new color2depth point cloud, then notifying
                                 std::lock_guard<std::mutex> lock(c2dQueueMutex);
@@ -321,14 +342,18 @@ private:
                             }
                         }
                     }
-                });
+
+                    pipeline->stop();
+                };
             }
         } else {
-            converter = std::thread([this, pipeline, pointCloudFilter]() {
+            convertFunction = [this](std::shared_ptr<ob::Pipeline> pipeline) {
+                std::cout << "Starting Depth thread" << std::endl;
                 // Depth Thread initialization
                 std::shared_ptr<ob::Align> align = std::make_shared<ob::Align>(OB_STREAM_DEPTH);
-                std::shared_ptr<ob::PointCloudFilter> pointCloudFilter = std::make_shared<ob::PointCloudFilter>();
-                pointCloudFilter->setCreatePointFormat(OB_FORMAT_POINT);
+                ob::PointCloudFilter pointCloudFilter;
+                pointCloudFilter.setCreatePointFormat(OB_FORMAT_POINT);
+                pointCloudFilter.setCameraParam(pipeline->getCameraParam());
                 float depthValueScale;
 
                 // Depth only thread
@@ -341,12 +366,12 @@ private:
                     if (fs->depthFrame() != nullptr && fs->colorFrame() != nullptr) {
                         // Setting depth scale for point cloud filter
                         depthValueScale = fs->depthFrame()->getValueScale();
-                        pointCloudFilter->setPositionDataScaled(depthValueScale);
+                        pointCloudFilter.setPositionDataScaled(depthValueScale);
 
                         // Alignment processing
                         std::shared_ptr<ob::Frame> depth_aligned = align->process(fs);
-                        pointCloudFilter->setCreatePointFormat(OB_FORMAT_POINT);
-                        std::shared_ptr<ob::Frame> depth_cloud = pointCloudFilter->process(depth_aligned);
+                        pointCloudFilter.setCreatePointFormat(OB_FORMAT_POINT);
+                        std::shared_ptr<ob::Frame> depth_cloud = pointCloudFilter.process(depth_aligned);
                         if (depth_cloud != nullptr) {
                             // Locking the queue to insert a new depth point cloud, then notifying
                             std::lock_guard<std::mutex> lock(depthQueueMutex);
@@ -360,11 +385,13 @@ private:
                         }
                     }
                 }
-            });
-        }
 
-        // Shutting down the pipeline outside of the thread
-        pipeline->stop();
+                pipeline->stop();
+            };
+        }
+        
+        // Starting the thread
+        converter = std::thread(convertFunction, pipeline);
     }
 
     /**
