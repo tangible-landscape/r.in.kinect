@@ -27,6 +27,9 @@ extern "C" {
 // Include statements for Orbbec SDK v2
 #include "libobsensor/ObSensor.hpp"
 
+// Aspect ratio for all resolution types
+#define ASPECT_RATIO (16.0 / 9)
+
 // Femto Color Resolution integration
 enum femto_color_resolution_t {
     FEMTO_COLOR_RESOLUTION_ANY = OB_WIDTH_ANY,
@@ -68,15 +71,20 @@ public:
      * @return the point cloud with the specified parameters
      */
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr get_cloud(bool color, bool depth2color) {
-        // If running, shut down before proceeding to refresh
-        if (running.load()) {
-            std::cout << "Thread already active, shutting down..." << std::endl;
-            shut_down();
+        // Checking the colors and depth2color for changes
+        if (color != global_color || depth2color != global_d2c) {
+            // If we call again with the same arguments, then we don't modify the thread
+            global_color = color;
+            global_d2c = depth2color;
+            if (running.load()) {
+                std::cout << "Changing parameters, shutting down..." << std::endl;
+                shut_down();
+            }
         }
 
-        // Start the cloud processing thread with the specific cloud type
+        // Starting the thread function with the correct arguments if it's not already going
         if (!running.load()) {
-            start_conversion_thread(color, depth2color);
+            start_conversion_thread(global_color, global_d2c);
         }
 
         // Waiting on a new point cloud to finish processing
@@ -90,11 +98,11 @@ public:
         if (!pointCloudQueue.empty()) {
             cloud = pointCloudQueue.front();
             pointCloudQueue.pop_front();
-            queueFull.notify_one();
         } else {
             throw std::runtime_error("No point cloud found, program terminated early");
         }
 
+        std::cout << "Returning Cloud with size " << cloud->size() << std::endl;
         return cloud;
     }
 
@@ -104,7 +112,6 @@ public:
     void shut_down() {
         running.store(false);  // Stopping the thread
         queueEmpty.notify_one(); // Notifying the queues
-        queueFull.notify_one();
         if (converter.joinable()) converter.join();
     }
 
@@ -117,7 +124,10 @@ private:
     // Condition variables for enforcing mutual exclusion, overdraft, and overwrite respectively
     std::mutex queueMutex;
     std::condition_variable queueEmpty;
-    std::condition_variable queueFull;
+
+    // Variables to keep track of the point cloud type
+    bool global_color = true;
+    bool global_d2c = true;
 
     /**
      * Runs a thread that converts frames from the Femto-Bolt to point clouds and stores them
@@ -205,6 +215,7 @@ private:
         pipe->start(config);
         
         // Starting the thread
+        std::cout << "Starting thread function with Color: " << color << " and D2C: " << depth2color << std::endl;
         converter = std::thread(&FemtoDriver::threadFunction, this, pipe, color, depth2color);
     }
 
@@ -257,17 +268,18 @@ private:
 
                 // Filtering and enqueuing
                 if (point_cloud_frame != nullptr) {
-                    // Locking the queue to insert a new color2depth point cloud, then notifying
-                    std::unique_lock<std::mutex> lock(queueMutex);
-                    queueFull.wait(lock, [this]{
-                        return pointCloudQueue.size() < MAX_QUEUE_SIZE || !running.load();
-                    });
+                    // Converting to point cloud outside the critical section
+                    auto temp_cloud = frame_to_point_cloud(point_cloud_frame, color);
 
-                    // If we don't enter this, it means we've stopped and can exit
-                    if (pointCloudQueue.size() < MAX_QUEUE_SIZE) {
-                        pointCloudQueue.push_back(frame_to_point_cloud(point_cloud_frame, color));
-                        queueEmpty.notify_one();
+                    // Critical section, locking and removing a stale point cloud
+                    std::unique_lock<std::mutex> lock(queueMutex);
+                    if (pointCloudQueue.size() >= MAX_QUEUE_SIZE) {
+                        pointCloudQueue.pop_front();
                     }
+
+                    // Inserting the point cloud now that we have space, then notify the consumer
+                    pointCloudQueue.push_back(temp_cloud);
+                    queueEmpty.notify_one();
                 } else {
                     throw std::runtime_error("Processed C2D Cloud was NULL");
                 }
@@ -315,7 +327,7 @@ private:
                     // Adjusting the reference frame and copying the color cloud
                     pcl::PointXYZRGB point;
                     point.x = -colorPoints[i].x / 1000.0;
-                    point.y = colorPoints[i].y / 1000.0;
+                    point.y = colorPoints[i].y / 1000.0 * ASPECT_RATIO;
                     point.z = -colorPoints[i].z / 1000.0;
                     point.r = static_cast<std::uint8_t>(colorPoints[i].r);
                     point.g = static_cast<std::uint8_t>(colorPoints[i].g);
@@ -329,7 +341,7 @@ private:
                     // Adjusting the reference frame and copying the depth cloud
                     pcl::PointXYZRGB point;
                     point.x = -points[i].x / 1000.0;
-                    point.y = points[i].y / 1000.0;
+                    point.y = points[i].y / 1000.0 * ASPECT_RATIO;
                     point.z = -points[i].z / 1000.0;
                     point.r = static_cast<std::uint8_t>(0);
                     point.g = static_cast<std::uint8_t>(0);
