@@ -4,6 +4,7 @@
 // Point Cloud Includes
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/filters/random_sample.h>
 
 // GRASS GIS Includes
 extern "C" {
@@ -29,6 +30,9 @@ extern "C" {
 
 // Aspect ratio for all resolution types
 #define ASPECT_RATIO (16.0 / 9)
+
+// Standardized number of points within the point cloud
+#define POINT_CLOUD_SIZE 100000
 
 // Femto Color Resolution integration
 enum femto_color_resolution_t {
@@ -77,7 +81,6 @@ public:
             global_color = color;
             global_d2c = depth2color;
             if (running.load()) {
-                std::cout << "Changing parameters, shutting down..." << std::endl;
                 shut_down();
             }
         }
@@ -102,7 +105,6 @@ public:
             throw std::runtime_error("No point cloud found, program terminated early");
         }
 
-        std::cout << "Returning Cloud with size " << cloud->size() << std::endl;
         return cloud;
     }
 
@@ -110,6 +112,7 @@ public:
      * Kills the converter thread, and shuts down the pipeline
      */
     void shut_down() {
+        std::cout << "Femto shutting down..." << std::endl;
         running.store(false);  // Stopping the thread
         queueEmpty.notify_one(); // Notifying the queues
         if (converter.joinable()) converter.join();
@@ -230,6 +233,8 @@ private:
         std::shared_ptr<ob::Align> align;
         pointCloudFilter.setCameraParam(pipeline->getCameraParam());
         float depthValueScale;
+        pcl::RandomSample<pcl::PointXYZRGB> randomSampler;
+        randomSampler.setSample(POINT_CLOUD_SIZE);
 
         // Type-specific initialization
         if (color) {
@@ -266,10 +271,15 @@ private:
                     point_cloud_frame = pointCloudFilter.process(fs);
                 }
 
-                // Filtering and enqueuing
+                // Filtering, enqueuing, and sampling
                 if (point_cloud_frame != nullptr) {
                     // Converting to point cloud outside the critical section
                     auto temp_cloud = frame_to_point_cloud(point_cloud_frame, color);
+
+                    // Sampling to standard dimension
+                    pcl::PointCloud<pcl::PointXYZRGB>::Ptr sampled_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+                    randomSampler.setInputCloud(temp_cloud);
+                    randomSampler.filter(*sampled_cloud);
 
                     // Critical section, locking and removing a stale point cloud
                     std::unique_lock<std::mutex> lock(queueMutex);
@@ -278,7 +288,7 @@ private:
                     }
 
                     // Inserting the point cloud now that we have space, then notify the consumer
-                    pointCloudQueue.push_back(temp_cloud);
+                    pointCloudQueue.push_back(sampled_cloud);
                     queueEmpty.notify_one();
                 } else {
                     throw std::runtime_error("Processed C2D Cloud was NULL");
@@ -327,7 +337,7 @@ private:
                     // Adjusting the reference frame and copying the color cloud
                     pcl::PointXYZRGB point;
                     point.x = -colorPoints[i].x / 1000.0;
-                    point.y = colorPoints[i].y / 1000.0 * ASPECT_RATIO;
+                    point.y = colorPoints[i].y / 1000.0;
                     point.z = -colorPoints[i].z / 1000.0;
                     point.r = static_cast<std::uint8_t>(colorPoints[i].r);
                     point.g = static_cast<std::uint8_t>(colorPoints[i].g);
@@ -341,7 +351,7 @@ private:
                     // Adjusting the reference frame and copying the depth cloud
                     pcl::PointXYZRGB point;
                     point.x = -points[i].x / 1000.0;
-                    point.y = points[i].y / 1000.0 * ASPECT_RATIO;
+                    point.y = points[i].y / 1000.0;
                     point.z = -points[i].z / 1000.0;
                     point.r = static_cast<std::uint8_t>(0);
                     point.g = static_cast<std::uint8_t>(0);
