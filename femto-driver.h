@@ -5,6 +5,8 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/filters/random_sample.h>
+#include <pcl/octree/octree_pointcloud.h>
+#include <pcl/octree/octree_pointcloud_voxelcentroid.h>
 
 // GRASS GIS Includes
 extern "C" {
@@ -28,11 +30,8 @@ extern "C" {
 // Include statements for Orbbec SDK v2
 #include "libobsensor/ObSensor.hpp"
 
-// Aspect ratio for all resolution types
-#define ASPECT_RATIO (16.0 / 9)
-
-// Standardized number of points within the point cloud
-#define POINT_CLOUD_SIZE 100000
+// The resolution of the octree filter, 3mm works well
+#define OCTREE_RESOLUTION 0.003f
 
 // Femto Color Resolution integration
 enum femto_color_resolution_t {
@@ -105,6 +104,7 @@ public:
             throw std::runtime_error("No point cloud found, program terminated early");
         }
 
+        std::cout << "Returning Point Cloud with size: " << cloud->size() << std::endl;
         return cloud;
     }
 
@@ -114,7 +114,7 @@ public:
     void shut_down() {
         std::cout << "Femto shutting down..." << std::endl;
         running.store(false);  // Stopping the thread
-        queueEmpty.notify_one(); // Notifying the queues
+        queueEmpty.notify_one(); // Notifying the queue
         if (converter.joinable()) converter.join();
     }
 
@@ -233,8 +233,6 @@ private:
         std::shared_ptr<ob::Align> align;
         pointCloudFilter.setCameraParam(pipeline->getCameraParam());
         float depthValueScale;
-        pcl::RandomSample<pcl::PointXYZRGB> randomSampler;
-        randomSampler.setSample(POINT_CLOUD_SIZE);
 
         // Type-specific initialization
         if (color) {
@@ -276,10 +274,22 @@ private:
                     // Converting to point cloud outside the critical section
                     auto temp_cloud = frame_to_point_cloud(point_cloud_frame, color);
 
-                    // Sampling to standard dimension
-                    pcl::PointCloud<pcl::PointXYZRGB>::Ptr sampled_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-                    randomSampler.setInputCloud(temp_cloud);
-                    randomSampler.filter(*sampled_cloud);
+                    // Sampling with Octree
+                    pcl::octree::OctreePointCloudVoxelCentroid<pcl::PointXYZRGB> octree(OCTREE_RESOLUTION);
+                    octree.setInputCloud(temp_cloud);
+                    octree.defineBoundingBox();
+                    octree.addPointsFromInputCloud();
+
+                    // Computing the octree centroids
+                    pcl::octree::OctreePointCloud<pcl::PointXYZRGB>::AlignedPointTVector centroids;
+                    octree.getVoxelCentroids(centroids);
+
+                    // Copying centroids into a new point clouds
+                    pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+                    filtered_cloud->points.assign(centroids.begin(), centroids.end());
+                    filtered_cloud->width = (uint32_t) centroids.size();
+                    filtered_cloud->height = 1;
+                    filtered_cloud->is_dense = true;
 
                     // Critical section, locking and removing a stale point cloud
                     std::unique_lock<std::mutex> lock(queueMutex);
@@ -288,7 +298,7 @@ private:
                     }
 
                     // Inserting the point cloud now that we have space, then notify the consumer
-                    pointCloudQueue.push_back(sampled_cloud);
+                    pointCloudQueue.push_back(filtered_cloud);
                     queueEmpty.notify_one();
                 } else {
                     throw std::runtime_error("Processed C2D Cloud was NULL");
