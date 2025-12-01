@@ -4,7 +4,6 @@
 // Point Cloud Includes
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include <pcl/filters/random_sample.h>
 #include <pcl/octree/octree_pointcloud.h>
 #include <pcl/octree/octree_pointcloud_voxelcentroid.h>
 
