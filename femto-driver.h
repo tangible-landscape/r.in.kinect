@@ -7,6 +7,9 @@
 #include <pcl/octree/octree_pointcloud.h>
 #include <pcl/octree/octree_pointcloud_voxelcentroid.h>
 
+// Including custom color-separating octree
+#include "color_octree.h"
+
 // GRASS GIS Includes
 extern "C" {
     #include <grass/gis.h>
@@ -273,8 +276,8 @@ private:
                     // Converting to point cloud outside the critical section
                     auto temp_cloud = frame_to_point_cloud(point_cloud_frame, color);
 
-                    // Sampling with Octree
-                    pcl::octree::OctreePointCloudVoxelCentroid<pcl::PointXYZRGB> octree(OCTREE_RESOLUTION);
+                    // Defining a custom octree with a color separating leaf container
+                    pcl::octree::OctreePointCloudVoxelCentroid<pcl::PointXYZRGB, ColorSeparatedLeafContainer<pcl::PointXYZRGB>> octree(OCTREE_RESOLUTION);
                     octree.setInputCloud(temp_cloud);
                     octree.defineBoundingBox();
                     octree.addPointsFromInputCloud();
