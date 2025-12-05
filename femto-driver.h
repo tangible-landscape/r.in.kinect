@@ -10,6 +10,10 @@
 // Including custom color-separating octree
 #include "color_octree.h"
 
+// The number of iterations between each bounding step
+// Higher is more efficient, but a less precise filter
+#define BOUNDING_RATE 10
+
 // GRASS GIS Includes
 extern "C" {
     #include <grass/gis.h>
@@ -31,9 +35,6 @@ extern "C" {
 
 // Include statements for Orbbec SDK v2
 #include "libobsensor/ObSensor.hpp"
-
-// The resolution of the octree filter, 3mm works well
-#define OCTREE_RESOLUTION 0.003f
 
 // Femto Color Resolution integration
 enum femto_color_resolution_t {
@@ -61,11 +62,14 @@ public:
 
     /**
      * Start the cloud conversion thread with the specified color resolution
-     * @param resolution the resolution to use for the color camera
+     * @param color_res the resolution to use for the color camera
+     * @param depth_res resolution of the depth scan, used to set the Octree.
+     * Defaults to 2mm as in the main method
      */
-    void initialize(femto_color_resolution_t resolution) {
+    void initialize(femto_color_resolution_t color_res, double depth_res = 0.002) {
         // Start the thread function when we first need a cloud
-        color_resolution = resolution;
+        color_resolution = color_res;
+        depth_resolution = depth_res;
     }
 
     /**
@@ -125,6 +129,7 @@ private:
     std::atomic<bool> running;  // Thread-safe running variable
     std::thread converter;  // The thread for converting all the clouds
     femto_color_resolution_t color_resolution = FEMTO_COLOR_RESOLUTION_ANY;  // Resolution for the color camera
+    double depth_resolution = 0.002;  // The depth resolution in meters, used for the Octree filter
 
     // Condition variables for enforcing mutual exclusion, overdraft, and overwrite respectively
     std::mutex queueMutex;
@@ -220,7 +225,9 @@ private:
         pipe->start(config);
         
         // Starting the thread
-        std::cout << "Starting thread function with Color: " << color << " and D2C: " << depth2color << std::endl;
+        std::cout << "Starting thread function with ";
+        std::cout << (color ? "Color and " : "No Color and ");
+        std::cout << (depth2color ? "Depth 2 Color\n" : "Color 2 Depth\n");
         converter = std::thread(&FemtoDriver::threadFunction, this, pipe, color, depth2color);
     }
 
@@ -234,6 +241,7 @@ private:
         ob::PointCloudFilter pointCloudFilter;
         std::shared_ptr<ob::Align> align;
         pointCloudFilter.setCameraParam(pipeline->getCameraParam());
+        pcl::octree::OctreePointCloudVoxelCentroid<pcl::PointXYZRGB, ColorSeparatedLeafContainer<pcl::PointXYZRGB>> octree(depth_resolution);
         float depthValueScale;
 
         // Type-specific initialization
@@ -277,7 +285,6 @@ private:
                     auto temp_cloud = frame_to_point_cloud(point_cloud_frame, color);
 
                     // Defining a custom octree with a color separating leaf container
-                    pcl::octree::OctreePointCloudVoxelCentroid<pcl::PointXYZRGB, ColorSeparatedLeafContainer<pcl::PointXYZRGB>> octree(OCTREE_RESOLUTION);
                     octree.setInputCloud(temp_cloud);
                     octree.defineBoundingBox();
                     octree.addPointsFromInputCloud();
@@ -285,6 +292,7 @@ private:
                     // Computing the octree centroids
                     pcl::octree::OctreePointCloud<pcl::PointXYZRGB>::AlignedPointTVector centroids;
                     octree.getVoxelCentroids(centroids);
+                    octree.deleteTree();  // Clearing the points for the next iteration
 
                     // Copying centroids into a new point clouds
                     pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZRGB>());

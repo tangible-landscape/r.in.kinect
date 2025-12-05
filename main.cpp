@@ -774,7 +774,7 @@ int main(int argc, char **argv)
     else
         femto_resolution = color_camera(color_camera_resolution_opt->answer);
     FemtoDriver femto;
-    femto.initialize(femto_resolution);
+    femto.initialize(femto_resolution, resolution);
 
     int j = 0;
     int failed = 0;
@@ -798,7 +798,7 @@ int main(int argc, char **argv)
                            femto_resolution, depth2color, camera_resolution, reinit_sensor);
             if (reinit_sensor) {
                 femto.shut_down();
-                femto.initialize(femto_resolution);
+                femto.initialize(femto_resolution, resolution);
                 reinit_sensor = false;  
             }
         }
