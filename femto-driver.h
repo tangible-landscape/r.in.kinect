@@ -10,10 +10,6 @@
 // Including custom color-separating octree
 #include "color_octree.h"
 
-// The number of iterations between each bounding step
-// Higher is more efficient, but a less precise filter
-#define BOUNDING_RATE 10
-
 // GRASS GIS Includes
 extern "C" {
     #include <grass/gis.h>
@@ -66,8 +62,9 @@ public:
      * @param depth_res resolution of the depth scan, used to set the Octree.
      * Defaults to 2mm as in the main method
      */
-    void initialize(femto_color_resolution_t color_res, double depth_res = 0.002) {
+    void initialize(femto_color_resolution_t femto_res, double color_res = 0.002, double depth_res = 0.002) {
         // Start the thread function when we first need a cloud
+        femto_resolution = femto_res;
         color_resolution = color_res;
         depth_resolution = depth_res;
     }
@@ -128,8 +125,9 @@ private:
     std::deque<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> pointCloudQueue;  // Queue for storing the point clouds for each type
     std::atomic<bool> running;  // Thread-safe running variable
     std::thread converter;  // The thread for converting all the clouds
-    femto_color_resolution_t color_resolution = FEMTO_COLOR_RESOLUTION_ANY;  // Resolution for the color camera
-    double depth_resolution = 0.002;  // The depth resolution in meters, used for the Octree filter
+    femto_color_resolution_t femto_resolution = FEMTO_COLOR_RESOLUTION_ANY;  // Resolution for the color camera
+    double color_resolution = 0.002;  // The resolution used when exporting color-dependent point clouds
+    double depth_resolution = 0.002;  // The resolution used when exporting depth-dependent point clouds
 
     // Condition variables for enforcing mutual exclusion, overdraft, and overwrite respectively
     std::mutex queueMutex;
@@ -141,7 +139,10 @@ private:
 
     /**
      * Runs a thread that converts frames from the Femto-Bolt to point clouds and stores them
-     * in their respective queues
+     * in their respective queues. If the cloud is strictly depth, uses depth_resolution, otherwise
+     * uses the minimum of depth and color resolution for the aggregated point cloud
+     * @param color If we want to compute point clouds with color
+     * @param depth2color true for a depth2color alignment, false for a color2depth alignment
      */
     void start_conversion_thread(bool color, bool depth2color) {
         running.store(true);
@@ -164,7 +165,7 @@ private:
                 colorProfile = profile->as<ob::VideoStreamProfile>();
             }
             // Creating the video stream with the desired resolution
-            config->enableVideoStream(OB_SENSOR_COLOR, get_camera_width(color_resolution), color_resolution, OB_FPS_ANY,
+            config->enableVideoStream(OB_SENSOR_COLOR, get_camera_width(femto_resolution), femto_resolution, OB_FPS_ANY,
                                         OB_FORMAT_RGB);
         } catch(ob::Error &e) {
             config->setAlignMode(ALIGN_DISABLE);
@@ -240,9 +241,10 @@ private:
     void threadFunction(std::shared_ptr<ob::Pipeline> pipeline, bool color, bool depth2color) {
         ob::PointCloudFilter pointCloudFilter;
         std::shared_ptr<ob::Align> align;
-        pointCloudFilter.setCameraParam(pipeline->getCameraParam());
-        pcl::octree::OctreePointCloudVoxelCentroid<pcl::PointXYZRGB, ColorSeparatedLeafContainer<pcl::PointXYZRGB>> octree(depth_resolution);
         float depthValueScale;
+        pointCloudFilter.setCameraParam(pipeline->getCameraParam());
+        double res = color ? std::min(depth_resolution, color_resolution) : depth_resolution;
+        pcl::octree::OctreePointCloudVoxelCentroid<pcl::PointXYZRGB, ColorSeparatedLeafContainer<pcl::PointXYZRGB>> octree(res);
 
         // Type-specific initialization
         if (color) {
