@@ -336,7 +336,7 @@ int median(std::vector<int> &v)
 {
     std::vector<int> new_;
     new_.reserve(v.size());
-    for (int i = 0; i < v.size(); i++) {
+    for (long unsigned int i = 0; i < v.size(); i++) {
         if (v[i] != 0)
             new_.push_back(v[i]);
     }
@@ -373,7 +373,7 @@ void autotrim(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &clip_N, d
     clip_S = 0;
     clip_E = 0;
     clip_W = 0;
-    for (int i = 0; i < x_array.size(); i++) {
+    for (long unsigned int i = 0; i < x_array.size(); i++) {
         if (x_array[i] < tolerance * median_x) {
             clip_W = (i + 1) * resolution;
         }
@@ -387,7 +387,7 @@ void autotrim(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud, double &clip_N, d
         else
             break;
     }
-    for (int i = 0; i < y_array.size(); i++) {
+    for (long unsigned int i = 0; i < y_array.size(); i++) {
         if (y_array[i] < tolerance * median_y) {
             clip_S = (i + 1) * resolution;
         }
@@ -804,10 +804,8 @@ int main(int argc, char **argv)
             }
         }
 
-        bool use_depth = false;
+        // This driver by default always uses depth
         bool use_color = false;
-        if (routput || voutput || ply || calib_flag->answer || calib_model_flag->answer)
-            use_depth = true;
         if (color_output || drawing)
             use_color = true;
         if (paused) {
@@ -862,7 +860,7 @@ int main(int argc, char **argv)
         if (draw_output) {
             int maxbright = 0;
             int maxbright_idx = 0;
-            for (int i=0; i < cloud->points.size(); i++) {
+            for (long unsigned int i = 0; i < cloud->points.size(); i++) {
                 Eigen::Vector3i rgbv = cloud->points[i].getRGBVector3i();
                 int sum = rgbv[0] + rgbv[1] + rgbv[2];
                 if (sum > maxbright) {
@@ -945,7 +943,7 @@ int main(int argc, char **argv)
                 if (Vect_open_tmp_new(&Map, tmp_name, WITH_Z) < 0)
                     G_fatal_error(_("Unable to create temporary vector map <%s>"), tmp_name);
             }
-            for (int i=0; i < cloud->points.size(); i++) {
+            for (long unsigned int i = 0; i < cloud->points.size(); i++) {
                 Vect_reset_line(Points);
                 Vect_reset_cats(Cats);
                 if (region3D)
@@ -1017,7 +1015,7 @@ int main(int argc, char **argv)
         // write to PLY
         if (ply) {
             pcl::PLYWriter writer;
-            for (int i=0; i < cloud->points.size(); i++) {
+            for (long unsigned int i = 0; i < cloud->points.size(); i++) {
                 if (region3D)
                     cloud->points[i].z = (cloud->points[i].z + zrange_max) * scale / zexag + offset;
                 else

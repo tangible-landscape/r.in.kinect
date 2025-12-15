@@ -21,12 +21,12 @@ void save_vector(char *name, struct Map_info &Map_draw,
         G_fatal_error(_("Unable to create vector map <%s>"), name);
     // draw line
     double x, y, z;
-    for (int j = 0; j < draw_x.size();j++) {
+    for (long unsigned int j = 0; j < draw_x.size();j++) {
         x = (draw_x[j] - bbox.W) * scale + window.west;
         y = (draw_y[j] - bbox.S) * scale + window.south;
         z = (draw_z[j] - bbox.B) * scale / zexag + offset;
         if (vect_type == GV_POINT) {
-            if(j == draw_x.size() - 1)
+            if (j == draw_x.size() - 1)
                 Vect_append_point(Points_draw, x, y, z);
         }
         else
