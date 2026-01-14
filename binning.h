@@ -39,8 +39,7 @@ void fill_idw(void *sum_array, void *n_array, void *interp_array,
             size_t offset = (row * cols + col) * Rast_cell_size(FCELL_TYPE);
             size_t n_offset = (row * cols + col) * Rast_cell_size(CELL_TYPE);
             int n = Rast_get_c_value(G_incr_void_ptr(n_array, n_offset), CELL_TYPE);
-            double sum =
-                Rast_get_d_value(G_incr_void_ptr(sum_array, offset), FCELL_TYPE);
+            Rast_get_d_value(G_incr_void_ptr(sum_array, offset), FCELL_TYPE);  // Return value is unused
             if (n == 0) {
                 int count = 0;
                 double sum2 = 0;
@@ -111,7 +110,7 @@ inline void binning(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
                                   Rast_cell_size(FCELL_TYPE));
     int arr_row, arr_col;
     double z;
-    for (int i = 0; i < cloud->points.size(); i++) {
+    for (long unsigned int i = 0; i < cloud->points.size(); i++) {
         /* find the bin in the current array box */
         arr_row = (int)((cellhd.north - cloud->points[i].y) / cellhd.ns_res);
         arr_col = (int)((cloud->points[i].x - cellhd.west) / cellhd.ew_res);

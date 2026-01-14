@@ -107,7 +107,7 @@ inline void binning_color(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud,
 
     int arr_row, arr_col;
     int r, g, b;
-    for (int i = 0; i < cloud->points.size(); i++) {
+    for (long unsigned int i = 0; i < cloud->points.size(); i++) {
         /* find the bin in the current array box */
         arr_row = (int)((cellhd.north - cloud->points[i].y) / cellhd.ns_res);
         arr_col = (int)((cloud->points[i].x - cellhd.west) / cellhd.ew_res);
