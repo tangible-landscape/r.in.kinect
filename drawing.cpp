@@ -21,7 +21,7 @@ void save_vector(char *name, struct Map_info &Map_draw,
         G_fatal_error(_("Unable to create vector map <%s>"), name);
     // draw line
     double x, y, z;
-    for (long unsigned int j = 0; j < draw_x.size();j++) {
+    for (long unsigned int j = 0; j < draw_x.size(); j++) {
         x = (draw_x[j] - bbox.W) * scale + window.west;
         y = (draw_y[j] - bbox.S) * scale + window.south;
         z = (draw_z[j] - bbox.B) * scale / zexag + offset;

@@ -48,7 +48,7 @@ class FemtoDriver {
 public:
     const unsigned int MAX_QUEUE_SIZE = 2;  // Max number of clouds stored in pointCloudQueue
     // Max number of ms to wait for a frame before refreshing
-    // It will still hang forever until it gets a non-null thread
+    // It will still wait indefinitely until it gets a non-null frame
     const unsigned int FRAME_WAIT_TIME = 1000;
 
     /**
@@ -107,7 +107,7 @@ public:
             throw std::runtime_error("No point cloud found, program terminated early");
         }
 
-        std::cout << "Returning Point Cloud with size: " << cloud->size() << std::endl;
+        std::cout << "Returning Point Cloud with size: " << cloud->size() << "\n";
         return cloud;
     }
 
@@ -115,7 +115,7 @@ public:
      * Kills the converter thread, and shuts down the pipeline
      */
     void shut_down() {
-        std::cout << "Femto shutting down..." << std::endl;
+        std::cout << "Femto shutting down...\n";
         running.store(false);  // Stopping the thread
         queueEmpty.notify_one(); // Notifying the queue
         if (converter.joinable()) converter.join();
@@ -243,6 +243,7 @@ private:
         std::shared_ptr<ob::Align> align;
         float depthValueScale;
         pointCloudFilter.setCameraParam(pipeline->getCameraParam());
+        // Getting mimimum resolution of depth and color
         double res = color ? std::min(depth_resolution, color_resolution) : depth_resolution;
         pcl::octree::OctreePointCloudVoxelCentroid<pcl::PointXYZRGB, ColorSeparatedLeafContainer<pcl::PointXYZRGB>> octree(res);
 
@@ -303,7 +304,7 @@ private:
                     filtered_cloud->height = 1;
                     filtered_cloud->is_dense = true;
 
-                    // Critical section, locking and removing a stale point cloud
+                    // Critical section, locking and removing any stale point clouds
                     std::unique_lock<std::mutex> lock(queueMutex);
                     if (pointCloudQueue.size() >= MAX_QUEUE_SIZE) {
                         pointCloudQueue.pop_front();
