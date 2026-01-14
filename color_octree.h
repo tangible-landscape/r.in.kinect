@@ -4,8 +4,8 @@
 
 
 /**
- * Custom Octree Leaf container that keeps color channels
- * separate when averaging
+ * Custom Octree Leaf container that maintains separate color
+ * channels when averaging
  * Each instance represents a centroid with added points averaged together
  */
 
@@ -72,54 +72,3 @@ private:
     float x_sum, y_sum, z_sum;
     float r_sum, g_sum, b_sum;
 };
-
-/**
- * Custom octree that implements the correct color averaging
- */
-// template<typename PointT>
-// class ColorOctreePointCloudVoxelCentroid : public pcl::octree::OctreePointCloudVoxelCentroid<PointT, ColorSeparatedLeafContainer<PointT>> {
-// public:
-//     // Defining base types for conciseness
-//     typedef pcl::octree::OctreePointCloudVoxelCentroid<PointT, ColorSeparatedLeafContainer<PointT>> BaseOctreeT;
-
-//     typedef typename BaseOctreeT::LeafNode LeafNode;
-//     typedef typename BaseOctreeT::BranchNode BranchNode;
-
-//     // Using base constructor
-//     ColorOctreePointCloudVoxelCentroid(double resolution) : BaseOctreeT(resolution) {}
-
-//     // Using base destructor
-//     virtual ~ColorOctreePointCloudVoxelCentroid() {}
-
-//     /**
-//      * Adding a point to the structure using our container
-//      */
-//     void addPointIdx(const pcl::uindex_t point_idx) override {
-//         // Getting the point from the octree
-//         const PointT& point = (*this->input_)[point_idx];
-
-//         // Generating a key for the point
-//         pcl::octree::OctreeKey key;
-//         this->genOctreeKeyforPoint(point, key);
-
-//         // Adding point to the container
-//         LeafNode* leaf = this->createLeaf(key);
-//         leaf->getContainer().addPoint(point);
-//     }
-
-//     pcl::uindex_t getVoxelCentroids(typename pcl::octree::OctreePointCloud<PointT, ColorSeparatedLeafContainer<PointT>>::AlignedPointTVector& voxel_centroids) const override {
-//         // Clearing any previous leaves
-//         voxel_centroids.clear();
-
-//         // Adding all the leaves
-//         for (auto it = this->leaf_begin(); it != this->leaf_end(); ++it) {
-//             PointT centroid;
-//             it.getLeafContainer().getCentroid(centroid);
-//             voxel_centroids.push_back(centroid);
-//         }
-
-//         return static_cast<pcl::uindex_t>(voxel_centroids.size());
-//     }
-// };
-
-
