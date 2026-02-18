@@ -5,6 +5,13 @@
 #include <tuple>
 #include <pcl/segmentation/extract_clusters.h>
 
+/** Maximum distance between points of the same cluster
+ *  in Meters, used in bbox calibration */
+const double MAX_CLUSTER_DISTANCE = 0.015;
+/** Minimum proportion of the environment that you expect 
+ *  belongs to the terrain model, used for bbox calibration. */
+const double TERRAIN_PROPORTION = 0.35;
+
 
 inline double getAngle(const Eigen::Vector3f &v1, const Eigen::Vector3f &v2, const bool in_degree)
 {
@@ -80,17 +87,22 @@ void calibrate_bbox(pcl::shared_ptr<pcl::PointCloud<PointT>> &cloud) {
 
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<PointT> ec;
-    ec.setClusterTolerance(0.02); // 2cm
-    ec.setMinClusterSize(5000);
-    ec.setMaxClusterSize(500000);
+
+    int minClusterSize = (int) (TERRAIN_PROPORTION * cloud->size());
+    int maxClusterSize = (int) cloud->size();
+    ec.setClusterTolerance(MAX_CLUSTER_DISTANCE);
+    ec.setMinClusterSize(minClusterSize);
+    ec.setMaxClusterSize(maxClusterSize);
     ec.setSearchMethod(tree);
     ec.setInputCloud(cloud);
     ec.extract(cluster_indices);
 
     if (cluster_indices.empty()) {
-        G_warning("Could not find any clusters.");
+        G_warning("Could not find any clusters with point cloud of size: %ld and size \n \
+                   range of (%d, %d)\n", cloud->size(), minClusterSize, maxClusterSize);
         return;
     }
+
     /* assume cluster with less distant min/max points is the model and extract bbox */
     double min_dist = 1e6;
     std::tuple<PointT, PointT> closest;
