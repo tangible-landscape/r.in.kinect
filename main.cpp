@@ -656,7 +656,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
 
     if (sensor_info_flag->answer) {
-        fprintf(stdout, "sensor=k4a\n");
+        fprintf(stdout, "sensor=femto\n");
         return EXIT_SUCCESS;
     }
     // initailization of variables
