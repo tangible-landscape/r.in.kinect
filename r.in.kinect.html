@@ -1,20 +1,186 @@
 <h2>DESCRIPTION</h2>
 
+<p><em>r.in.kinect</em> imports data scanned by a depth camera as a GRASS
+raster or vector map. It is the scanning backend of the
+<a href="https://tangible-landscape.github.io/">Tangible Landscape</a> project,
+in which a depth camera mounted above a physical model continuously captures the
+model's surface and turns it into a GRASS raster representing topography.
+
+<p>This branch supports the <b>Orbbec Femto Bolt</b> sensor through the Orbbec
+SDK. Other branches of the module support the Microsoft Azure Kinect DK and the
+Kinect for Xbox One.
+
+<p>The module captures a point cloud from the sensor, applies a series of
+optional filtering and transformation steps, and writes the result as one or
+more of:
+
+<ul>
+  <li>a raster map (<b>output</b>) representing the scanned surface,</li>
+  <li>RGB raster maps from the color camera (<b>color_output</b>),</li>
+  <li>a vector point map (<b>vector</b>),</li>
+  <li>a binary PLY point-cloud file (<b>ply</b>).</li>
+</ul>
+
+<h3>Processing pipeline</h3>
+
+<p>The point cloud passes through the following steps, in order. Each step is
+skipped when its options are not set:
+
+<ol>
+  <li>Capture <b>numscan</b> frames and merge them into one cloud.</li>
+  <li>Apply the calibration matrix (<b>calib_matrix</b>) to correct sensor
+      tilt.</li>
+  <li>Filter points by distance from the sensor (<b>zrange</b>).</li>
+  <li>Rotate the cloud around the vertical axis (<b>rotate</b>).</li>
+  <li>Crop a fixed box measured from the scan center (<b>trim</b>), or trim
+      empty margins automatically (<b>trim_tolerance</b>).</li>
+  <li>Remove statistical outliers.</li>
+  <li>Smooth the surface (<b>smooth_radius</b>).</li>
+  <li>Bin or interpolate the points onto a raster (<b>method</b>,
+      <b>interpolation_method</b>, <b>resolution</b>).</li>
+  <li>Georeference the result to a GRASS region (<b>region</b>, <b>raster</b>,
+      <b>zexag</b>).</li>
+</ol>
+
+<h3>Coordinate system</h3>
+
+<p>The sensor is assumed to look down at an approximately horizontal surface.
+The <em>z</em> coordinate is the distance from the sensor, so smaller <em>z</em>
+values are closer to the camera. After calibration the scan plane is leveled,
+and elevations are scaled and shifted to fit the horizontal extent and vertical
+range of the target region. Distances given in <b>zrange</b> and <b>trim</b> are
+expressed in centimeters.
 
 <h2>NOTES</h2>
 
+<h3>Calibration</h3>
 
+<p>Before scanning, the module is typically run twice in calibration mode:
+
+<ul>
+  <li><b>-c</b> (sensor calibration) fits a plane to the point cloud and
+      estimates the tilt of the sensor relative to the scanned surface and its
+      height above it. It prints <tt>angle_deviation</tt>, a nine-value
+      <tt>calib_matrix</tt>, and <tt>height</tt>. Pass the nine values back as
+      <b>calib_matrix</b> in subsequent runs to level the scan.</li>
+  <li><b>-m</b> (model position calibration) detects the physical model on the
+      table and prints <tt>bbox=N,S,E,W</tt> in centimeters from the scan
+      center. Use these values as <b>trim</b> to crop the scan to the
+      model.</li>
+</ul>
+
+<p>The <b>-c</b> and <b>-m</b> flags are mutually exclusive.
+
+<h3>Continuous scanning and runtime control</h3>
+
+<p>With <b>-l</b> the module keeps scanning in a loop instead of exiting after a
+single scan. While looping, parameters can be changed at runtime: send the
+process the <tt>SIGUSR1</tt> signal and it will read <tt>key=value</tt> lines
+from standard input (one per line, terminated by an empty line). Most options
+can be updated this way, including <tt>output</tt>, <tt>resolution</tt>,
+<tt>zrange</tt>, <tt>trim</tt>, <tt>rotate</tt>, <tt>zexag</tt>, <tt>method</tt>,
+and <tt>camera_resolution</tt>. Changing <tt>camera_resolution</tt> reinitializes
+the sensor. Three additional control keywords are recognized:
+
+<ul>
+  <li><tt>pause</tt> / <tt>resume</tt> &mdash; stop and restart scanning,</li>
+  <li><tt>resume_once</tt> &mdash; process a single scan and pause again.</li>
+</ul>
+
+<p>This runtime protocol is how the GRASS
+<a href="https://github.com/tangible-landscape/grass-tangible-landscape">Tangible
+Landscape plugin</a> drives the module.
+
+<p>If <b>signal_file</b> is set, an empty file with that name is created after
+each scan cycle, which other programs can watch to detect when a new result is
+ready.
+
+<h3>Drawing with a laser pointer</h3>
+
+<p>If <b>draw_output</b> is given, the module looks for the brightest spot in
+the color image (with combined RGB brightness above <b>draw_threshold</b>) and
+records its position. Consecutive detections are collected and written to
+<b>draw_output</b> as a point, line, or area depending on <b>draw</b>. This mode
+requires the color camera.
+
+<h3>Surface reconstruction</h3>
+
+<p><b>method</b> controls how points are turned into raster cells: <tt>mean</tt>,
+<tt>min</tt>, and <tt>max</tt> aggregate the points falling into each cell, while
+<tt>interpolation</tt> fills the raster from the points. When <b>method</b> is
+<tt>interpolation</tt>, <b>interpolation_method</b> selects between inverse
+distance weighting (<tt>idw</tt>) and regularized splines (<tt>splines</tt>);
+spline interpolation can be parallelized with <b>nprocs_interpolation</b>.
+
+<h3>Sensor info</h3>
+
+<p>The <b>-i</b> flag prints sensor information and exits without scanning.
 
 <h2>EXAMPLES</h2>
 
+<p>Calibrate the sensor tilt and height above the table:
+
+<div class="code"><pre>
+r.in.kinect -c
+</pre></div>
+
+<p>Calibrate the position of the physical model:
+
+<div class="code"><pre>
+r.in.kinect -m
+</pre></div>
+
+<p>Scan a physical model into a raster, georeferenced to the current region:
+
+<div class="code"><pre>
+r.in.kinect output=scan resolution=0.002 \
+  zrange=80,95 trim=20,20,30,30
+</pre></div>
+
+<p>Import the scan together with color rasters from a 1080p color camera:
+
+<div class="code"><pre>
+r.in.kinect output=scan color_output=scan_color \
+  resolution=0.002 color_resolution=0.002 camera_resolution=1080P
+</pre></div>
+
+<p>Scan continuously, matching the result to the extent and resolution of an
+existing raster map:
+
+<div class="code"><pre>
+r.in.kinect -l output=scan resolution=0.002 raster=elevation
+</pre></div>
+
+<p>Export the raw point cloud to a binary PLY file:
+
+<div class="code"><pre>
+r.in.kinect ply=scan.ply
+</pre></div>
+
 <h2>REFERENCES</h2>
+
+<ul>
+  <li>Petrasova, A., Harmon, B., Petras, V., Tabrizian, P., Mitasova, H. (2018).
+      <i>Tangible Modeling with Open Source GIS</i>. Second edition. Springer.
+      <a href="https://doi.org/10.1007/978-3-319-89303-7">https://doi.org/10.1007/978-3-319-89303-7</a></li>
+  <li>Tangible Landscape project:
+      <a href="https://tangible-landscape.github.io/">https://tangible-landscape.github.io/</a></li>
+</ul>
 
 <h2>SEE ALSO</h2>
 
+<em>
+<a href="r.in.xyz.html">r.in.xyz</a>,
+<a href="r.in.pdal.html">r.in.pdal</a>,
+<a href="v.in.lidar.html">v.in.lidar</a>,
+<a href="r.contour.html">r.contour</a>,
+<a href="r.fillnulls.html">r.fillnulls</a>,
+<a href="v.surf.rst.html">v.surf.rst</a>
+</em>
+
 <h2>AUTHORS</h2>
 
-<p>Anna Petrasova (NCSU OSGeoREL)
-<p>Vaclav Petras (NCSU OSGeoREL)
+<p>Anna Petrasova, NCSU Center for Geospatial Analytics
+<p>Vaclav Petras, NCSU Center for Geospatial Analytics
 
-<p>
-<i>Last changed: $Date: 2014-12-19 16:17:36 -0500 (Fri, 19 Dec 2014) $</i>
+<p>Orbbec Femto Bolt sensor support was contributed by Everett Tucker.

@@ -1,0 +1,12 @@
+# CMake build
+build/
+
+# Legacy GRASS Makefile build artifacts
+OBJ.*/
+*.o
+*.so
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
