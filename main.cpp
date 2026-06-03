@@ -112,7 +112,7 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                     char* &color_output, char* &voutput, char * &ply,
                     char* &contours_output, double &contours_step,
                     int &draw_type, int &draw_threshold, char* &draw_output, bool &paused, bool &resume_once,
-                    femto_color_resolution_t& femto_resolution, bool& depth2color, char* &camera_resolution, bool& reinit_sensor) {
+                    femto_color_resolution_t& femto_resolution, bool& depth2color, char* &camera_resolution, int &wb_kelvin, bool& reinit_sensor) {
     char buf[200];
     char **tokens;
     char **tokens2;
@@ -233,6 +233,10 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                         femto_resolution = color_camera(camera_resolution);
                     }
                 }
+            }
+            else if (strcmp(tokens[0], "white_balance") == 0) {
+                wb_kelvin = atoi(tokens[1]);
+                reinit_sensor = true;
             }
             G_free_tokens(tokens);
         }
@@ -808,10 +812,11 @@ int main(int argc, char **argv)
                            color_output, voutput, ply,
                            contours_output, contours_step,
                            vect_type, draw_threshold, draw_output, paused, resume_once,
-                           femto_resolution, depth2color, camera_resolution, reinit_sensor);
+                           femto_resolution, depth2color, camera_resolution, wb_value, reinit_sensor);
             if (reinit_sensor) {
                 femto.shut_down();
                 femto.initialize(femto_resolution, color_resolution, resolution);
+                femto.set_white_balance(wb_value);
                 reinit_sensor = false;  
             }
         }
