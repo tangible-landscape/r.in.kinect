@@ -112,7 +112,7 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                     char* &color_output, char* &voutput, char * &ply,
                     char* &contours_output, double &contours_step,
                     int &draw_type, int &draw_threshold, char* &draw_output, bool &paused, bool &resume_once,
-                    femto_color_resolution_t& femto_resolution, bool& depth2color, char* &camera_resolution, bool& reinit_sensor) {
+                    femto_color_resolution_t& femto_resolution, bool& depth2color, char* &camera_resolution, int &wb_kelvin, bool& reinit_sensor) {
     char buf[200];
     char **tokens;
     char **tokens2;
@@ -233,6 +233,10 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
                         femto_resolution = color_camera(camera_resolution);
                     }
                 }
+            }
+            else if (strcmp(tokens[0], "white_balance") == 0) {
+                wb_kelvin = atoi(tokens[1]);
+                reinit_sensor = true;
             }
             G_free_tokens(tokens);
         }
@@ -409,10 +413,10 @@ int main(int argc, char **argv)
 {
     struct GModule *module;
     struct Option *voutput_opt, *routput_opt, *color_output_opt, *ply_opt, *zrange_opt, *trim_opt, *rotate_Z_opt,
-            *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt, *color_resolution_opt,
-            *color_camera_resolution_opt, *method_opt, *interp_method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
-            *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp,
-            *signal_file;
+        *smooth_radius_opt, *region_opt, *raster_opt, *zexag_opt, *resolution_opt, *color_resolution_opt,
+        *color_camera_resolution_opt, *method_opt, *interp_method_opt, *calib_matrix_opt, *numscan_opt, *trim_tolerance_opt,
+        *contours_map, *contours_step_opt, *draw_opt, *draw_vector_opt, *draw_threshold_opt, *nprocs_interp,
+        *signal_file, *white_balance_opt;
     struct Flag *loop_flag, *calib_flag, *calib_model_flag, *equalize_flag, *sensor_info_flag;
     struct Map_info Map;
     struct line_pnts *Points;
@@ -640,6 +644,15 @@ int main(int argc, char **argv)
     signal_file->required = NO;
     signal_file->description = _("File signaling scanning cycle is done");
 
+    white_balance_opt = G_define_option();
+    white_balance_opt->key = "white_balance";
+    white_balance_opt->type = TYPE_INTEGER;
+    white_balance_opt->required = NO;
+    white_balance_opt->answer = const_cast<char*>("0");
+    white_balance_opt->label = _("Color temperature for manual white balance (K)");
+    white_balance_opt->description = _("0 = auto AWB, typical range 2800-6500. Try 4200 for neutral indoor.");
+    white_balance_opt->guisection = _("Output");
+
     sensor_info_flag = G_define_flag();
     sensor_info_flag->key = 'i';
     sensor_info_flag->description = _("Print sensor info and exit");
@@ -777,6 +790,9 @@ int main(int argc, char **argv)
     // camera resolution is redundant with femto_resolution
     femto.initialize(femto_resolution, color_resolution, resolution);
 
+    int wb_value = atoi(white_balance_opt->answer);
+    femto.set_white_balance(wb_value);  // 0 = auto, >0 = manual K value
+
     int j = 0;
     int failed = 0;
     // get terminating signals
@@ -796,10 +812,11 @@ int main(int argc, char **argv)
                            color_output, voutput, ply,
                            contours_output, contours_step,
                            vect_type, draw_threshold, draw_output, paused, resume_once,
-                           femto_resolution, depth2color, camera_resolution, reinit_sensor);
+                           femto_resolution, depth2color, camera_resolution, wb_value, reinit_sensor);
             if (reinit_sensor) {
                 femto.shut_down();
                 femto.initialize(femto_resolution, color_resolution, resolution);
+                femto.set_white_balance(wb_value);
                 reinit_sensor = false;  
             }
         }

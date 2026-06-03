@@ -121,6 +121,14 @@ public:
         if (converter.joinable()) converter.join();
     }
 
+    /**
+     * Set white balance color temperature
+     * @param kelvin 0 = auto AWB, >0 = manual color temperature in Kelvin
+     */
+    void set_white_balance(int kelvin) {
+        wb_kelvin = kelvin;
+    }
+
 private:
     std::deque<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> pointCloudQueue;  // Queue for storing the point clouds for each type
     std::atomic<bool> running;  // Thread-safe running variable
@@ -136,6 +144,7 @@ private:
     // Variables to keep track of the point cloud type
     bool global_color = true;
     bool global_d2c = true;
+    int wb_kelvin = 0;  // 0 = auto AWB, >0 = manual white balance in Kelvin
 
     /**
      * Runs a thread that converts frames from the Femto-Bolt to point clouds and stores them
@@ -224,11 +233,22 @@ private:
 
         // Starting the pipeline
         pipe->start(config);
-        
-        // Starting the thread
-        std::cout << "Starting thread function with ";
-        std::cout << (color ? "Color and " : "No Color and ");
-        std::cout << (depth2color ? "Depth 2 Color\n" : "Color 2 Depth\n");
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        // Apply white balance setting
+        try {
+            auto device = pipe->getDevice();
+            if (wb_kelvin > 0) {
+                device->setBoolProperty(OB_PROP_COLOR_AUTO_WHITE_BALANCE_BOOL, false);
+                device->setBoolProperty(OB_PROP_COLOR_AUTO_EXPOSURE_BOOL, true);
+                device->setIntProperty(OB_PROP_COLOR_WHITE_BALANCE_INT, wb_kelvin);
+            } else {
+                device->setBoolProperty(OB_PROP_COLOR_AUTO_WHITE_BALANCE_BOOL, true);
+            }
+        } catch (ob::Error &e) {
+            std::cerr << "WB control not supported: " << e.getMessage() << std::endl;
+        }
+
         converter = std::thread(&FemtoDriver::threadFunction, this, pipe, color, depth2color);
     }
 
