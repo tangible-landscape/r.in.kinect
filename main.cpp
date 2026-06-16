@@ -236,7 +236,6 @@ void read_new_input(char* &routput, double &zrange_min, double &zrange_max,
             }
             else if (strcmp(tokens[0], "white_balance") == 0) {
                 wb_kelvin = atoi(tokens[1]);
-                reinit_sensor = true;
             }
             G_free_tokens(tokens);
         }
@@ -791,6 +790,7 @@ int main(int argc, char **argv)
     femto.initialize(femto_resolution, color_resolution, resolution);
 
     int wb_value = atoi(white_balance_opt->answer);
+    int wb_value_new = wb_value;
     femto.set_white_balance(wb_value);  // 0 = auto, >0 = manual K value
 
     int j = 0;
@@ -812,11 +812,12 @@ int main(int argc, char **argv)
                            color_output, voutput, ply,
                            contours_output, contours_step,
                            vect_type, draw_threshold, draw_output, paused, resume_once,
-                           femto_resolution, depth2color, camera_resolution, wb_value, reinit_sensor);
-            if (reinit_sensor) {
+                           femto_resolution, depth2color, camera_resolution, wb_value_new, reinit_sensor);
+            if (reinit_sensor || (wb_value != wb_value_new)) {
                 femto.shut_down();
                 femto.initialize(femto_resolution, color_resolution, resolution);
-                femto.set_white_balance(wb_value);
+                femto.set_white_balance(wb_value_new);
+                wb_value = wb_value_new;
                 reinit_sensor = false;  
             }
         }
