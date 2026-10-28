@@ -78,6 +78,7 @@ public:
                 dev_ = freenect2_.openDevice(serial, new libfreenect2::OpenCLPacketPipeline());
             break;
 #endif
+#ifdef LIBFREENECT2_WITH_OPENGL_SUPPORT
         case OPENGL:
             std::cout << "creating OpenGL processor" << std::endl;
             if (serial.empty())
@@ -85,6 +86,7 @@ public:
             else
                 dev_ = freenect2_.openDevice (serial, new libfreenect2::OpenGLPacketPipeline ());
             break;
+#endif
 #ifdef WITH_CUDA
         case CUDA:
             std::cout << "creating Cuda processor" << std::endl;
